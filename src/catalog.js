@@ -176,6 +176,169 @@ export function groupMenuItemsForAdmin(menuItems, categories) {
   return { knownGroups, orphans }
 }
 
+export const PIZZA_SIZE_TEMPLATES = [
+  { id: 'broto', label: 'Broto', pieces: 4 },
+  { id: 'media', label: 'Media', pieces: 6 },
+  { id: 'grande', label: 'Grande', pieces: 8 },
+]
+
+export function isPizzaCategory(categoryId) {
+  return categoryId === 'pizzas'
+}
+
+export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
+  const byId = new Map()
+  if (Array.isArray(rawSizes)) {
+    for (const entry of rawSizes) {
+      if (entry?.id) byId.set(entry.id, entry)
+    }
+  }
+
+  const fallback = Number(fallbackPrice) || 0
+
+  return PIZZA_SIZE_TEMPLATES.map((template) => {
+    const existing = byId.get(template.id) || {}
+    const price = Number(existing.price ?? fallback)
+    return {
+      id: template.id,
+      label: template.label,
+      pieces: template.pieces,
+      price: Number.isFinite(price) && price >= 0 ? price : 0,
+    }
+  })
+}
+
+export function itemHasSizes(item) {
+  return isPizzaCategory(item?.category) && Array.isArray(item?.sizes) && item.sizes.length > 0
+}
+
+export function getPizzaSizePrice(menuItem, sizeId) {
+  if (!itemHasSizes(menuItem)) {
+    const price = Number(menuItem?.price)
+    return Number.isFinite(price) && price > 0 ? price : 0
+  }
+
+  const size = menuItem.sizes.find((entry) => entry.id === sizeId)
+  const price = Number(size?.price ?? menuItem.price)
+  return Number.isFinite(price) && price > 0 ? price : 0
+}
+
+/** Meia a meia: cobra o valor do sabor mais caro no tamanho escolhido. */
+export function computeHalfAndHalfPrice(primary, secondary, sizeId) {
+  const priceA = getPizzaSizePrice(primary, sizeId)
+  const priceB = getPizzaSizePrice(secondary, sizeId)
+  return Math.max(priceA, priceB)
+}
+
+export function halfAndHalfPairKey(idA, idB) {
+  const a = String(idA ?? '')
+  const b = String(idB ?? '')
+  return a < b ? `${a}:${b}` : `${b}:${a}`
+}
+
+export function buildHalfAndHalfCartName(primary, secondary, sizeLabel) {
+  const base = `Meia ${primary.name} / Meia ${secondary.name}`
+  if (!sizeLabel) return base
+  const shortSize = String(sizeLabel).split(' (')[0]
+  return `${base} — ${shortSize}`
+}
+
+export function formatPriceRangeLabel(item) {
+  if (!itemHasSizes(item)) {
+    return `R$ ${Number(item.price).toFixed(2)}`
+  }
+
+  const prices = item.sizes.map((size) => size.price).filter((value) => value > 0)
+  if (prices.length === 0) return `R$ ${Number(item.price).toFixed(2)}`
+
+  const min = Math.min(...prices)
+  const max = Math.max(...prices)
+  if (min === max) return `R$ ${min.toFixed(2)}`
+  return `R$ ${min.toFixed(2)} a R$ ${max.toFixed(2)}`
+}
+
+export function stripPriceDigits(value) {
+  return String(value ?? '').replace(/\D/g, '')
+}
+
+/** Formata como moeda BRL enquanto digita (ex.: digitar 4990 vira 49,90). */
+export function applyPriceMask(raw) {
+  const digits = stripPriceDigits(raw)
+  if (!digits) return ''
+
+  const cents = Number.parseInt(digits, 10)
+  if (!Number.isFinite(cents)) return ''
+
+  return (cents / 100).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+export function parsePriceInput(value) {
+  const digits = stripPriceDigits(value)
+  if (digits) {
+    const cents = Number.parseInt(digits, 10)
+    if (Number.isFinite(cents)) return cents / 100
+  }
+
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\./g, '')
+    .replace(',', '.')
+  if (!normalized) return Number.NaN
+
+  return Number(normalized)
+}
+
+export function formatPriceForInput(price) {
+  if (price === '' || price === null || price === undefined) return ''
+  const numeric = Number(price)
+  if (!Number.isFinite(numeric) || numeric < 0) return ''
+  return applyPriceMask(String(Math.round(numeric * 100)))
+}
+
+export function emptySizePrices() {
+  return { broto: '', media: '', grande: '' }
+}
+
+export function buildSizePricesFromItem(item) {
+  const prices = emptySizePrices()
+  if (!itemHasSizes(item)) return prices
+
+  for (const size of item.sizes) {
+    prices[size.id] = size.price > 0 ? formatPriceForInput(size.price) : ''
+  }
+  return prices
+}
+
+export function buildSizesFromForm(category, price, sizePrices) {
+  if (!isPizzaCategory(category)) return []
+
+  return PIZZA_SIZE_TEMPLATES.map((template) => {
+    const parsed = parsePriceInput(sizePrices?.[template.id] || '')
+    return {
+      id: template.id,
+      label: template.label,
+      pieces: template.pieces,
+      price: Number.isFinite(parsed) && parsed > 0 ? parsed : 0,
+    }
+  })
+}
+
+export function normalizeMenuItemSizes(item) {
+  if (!isPizzaCategory(item.category)) {
+    return { ...item, sizes: [] }
+  }
+
+  const sizes = normalizePizzaSizes(item.sizes, item.price)
+  const positivePrices = sizes.map((size) => size.price).filter((value) => value > 0)
+  const price =
+    positivePrices.length > 0 ? Math.min(...positivePrices) : Number(item.price) || 0
+
+  return { ...item, sizes, price }
+}
+
 export function normalizeMenuItemCategories(item, categories) {
   const activeCategory = resolveActiveCategory(categories, item.category)
   const category = findCategory(categories, activeCategory)

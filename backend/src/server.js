@@ -1,14 +1,20 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import {
   loadCategoriesFromDb,
   normalizeCategories,
   saveCategoriesToDb,
 } from './categories.js'
 import { query } from './db.js'
+import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
 
 dotenv.config()
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const app = express()
 const PORT = Number(process.env.PORT || 3001)
@@ -42,38 +48,40 @@ app.put('/categories', async (req, res) => {
 app.get('/menu-items', async (_req, res) => {
   try {
     const result = await query(
-      `SELECT id, category, subcategory, name, description, price, image_base64 AS image
+      `SELECT id, category, subcategory, name, description, price, sizes, image_base64 AS image
        FROM menu_items
        ORDER BY id DESC`,
     )
-    return res.json(result.rows)
+    return res.json(result.rows.map((row) => normalizeMenuItemRow(row)))
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao listar produtos', detail: error.message })
   }
 })
 
 app.post('/menu-items', async (req, res) => {
-  const { category, subcategory, name, description, price, image } = req.body
-
-  if (!name || Number.isNaN(Number(price)) || Number(price) <= 0) {
-    return res.status(400).json({ message: 'Dados invalidos para o produto' })
+  const built = buildMenuItemPayload(req.body)
+  if (built.error) {
+    return res.status(400).json({ message: built.error })
   }
+
+  const { payload } = built
 
   try {
     const result = await query(
-      `INSERT INTO menu_items (category, subcategory, name, description, price, image_base64)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, category, subcategory, name, description, price, image_base64 AS image`,
+      `INSERT INTO menu_items (category, subcategory, name, description, price, sizes, image_base64)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, category, subcategory, name, description, price, sizes, image_base64 AS image`,
       [
-        category || 'pizzas',
-        subcategory || '',
-        name.trim(),
-        description || '',
-        Number(price),
-        image || '',
+        payload.category,
+        payload.subcategory,
+        payload.name,
+        payload.description,
+        payload.price,
+        JSON.stringify(payload.sizes),
+        payload.image,
       ],
     )
-    return res.status(201).json(result.rows[0])
+    return res.status(201).json(normalizeMenuItemRow(result.rows[0]))
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao criar produto', detail: error.message })
   }
@@ -81,15 +89,17 @@ app.post('/menu-items', async (req, res) => {
 
 app.put('/menu-items/:id', async (req, res) => {
   const itemId = Number(req.params.id)
-  const { category, subcategory, name, description, price, image } = req.body
 
   if (!Number.isInteger(itemId)) {
     return res.status(400).json({ message: 'ID invalido' })
   }
 
-  if (!name || Number.isNaN(Number(price)) || Number(price) <= 0) {
-    return res.status(400).json({ message: 'Dados invalidos para o produto' })
+  const built = buildMenuItemPayload(req.body)
+  if (built.error) {
+    return res.status(400).json({ message: built.error })
   }
+
+  const { payload } = built
 
   try {
     const result = await query(
@@ -99,17 +109,19 @@ app.put('/menu-items/:id', async (req, res) => {
            name = $4,
            description = $5,
            price = $6,
-           image_base64 = $7
+           sizes = $7,
+           image_base64 = $8
        WHERE id = $1
-       RETURNING id, category, subcategory, name, description, price, image_base64 AS image`,
+       RETURNING id, category, subcategory, name, description, price, sizes, image_base64 AS image`,
       [
         itemId,
-        category || 'pizzas',
-        subcategory || '',
-        name.trim(),
-        description || '',
-        Number(price),
-        image || '',
+        payload.category,
+        payload.subcategory,
+        payload.name,
+        payload.description,
+        payload.price,
+        JSON.stringify(payload.sizes),
+        payload.image,
       ],
     )
 
@@ -117,7 +129,7 @@ app.put('/menu-items/:id', async (req, res) => {
       return res.status(404).json({ message: 'Produto nao encontrado' })
     }
 
-    return res.json(result.rows[0])
+    return res.json(normalizeMenuItemRow(result.rows[0]))
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao atualizar produto', detail: error.message })
   }
@@ -168,8 +180,8 @@ app.post('/orders', async (req, res) => {
 
     const insertItemPromises = items.map((item) =>
       query(
-        `INSERT INTO order_items (order_id, item_id, item_name, category, subcategory, quantity, unit_price)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        `INSERT INTO order_items (order_id, item_id, item_name, category, subcategory, quantity, unit_price, size_id, size_label)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           order.id,
           Number(item.id ?? 0),
@@ -178,6 +190,8 @@ app.post('/orders', async (req, res) => {
           item.subcategory ?? '',
           Number(item.qty ?? 1),
           Number(item.price ?? 0),
+          item.sizeId ?? '',
+          item.sizeLabel ?? '',
         ],
       ),
     )
@@ -211,7 +225,7 @@ app.get('/orders/:id/items', async (req, res) => {
 
   try {
     const result = await query(
-      `SELECT id, item_id AS "itemId", item_name AS "itemName", category, quantity, unit_price AS "unitPrice"
+      `SELECT id, item_id AS "itemId", item_name AS "itemName", category, quantity, unit_price AS "unitPrice", size_id AS "sizeId", size_label AS "sizeLabel"
        FROM order_items
        WHERE order_id = $1
        ORDER BY id`,
@@ -254,7 +268,15 @@ app.patch('/orders/:id/status', async (req, res) => {
   }
 })
 
-app.listen(PORT, () => {
+if (process.env.NODE_ENV === 'production') {
+  const distPath = path.resolve(__dirname, '../../dist')
+  app.use(express.static(distPath))
+  app.get(/^(?!\/(health|categories|menu-items|orders)(\/|$)).*/, (_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'))
+  })
+}
+
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`API PizzaRalfs rodando em http://localhost:${PORT}`)
 })
 

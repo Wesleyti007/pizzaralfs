@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  sizes JSONB NOT NULL DEFAULT '[]'::jsonb,
   image_base64 TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -32,7 +33,9 @@ CREATE TABLE IF NOT EXISTS order_items (
   category TEXT NOT NULL DEFAULT 'pizzas',
   subcategory TEXT NOT NULL DEFAULT '',
   quantity INTEGER NOT NULL DEFAULT 1,
-  unit_price NUMERIC(10,2) NOT NULL DEFAULT 0
+  unit_price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  size_id TEXT NOT NULL DEFAULT '',
+  size_label TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);

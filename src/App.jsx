@@ -20,9 +20,23 @@ import {
   getCategoryLabel,
   getItemCategoryLabel,
   getSubcategoryLabel,
+  applyPriceMask,
+  buildHalfAndHalfCartName,
+  buildSizePricesFromItem,
+  buildSizesFromForm,
+  computeHalfAndHalfPrice,
+  emptySizePrices,
+  formatPriceForInput,
+  formatPriceRangeLabel,
+  halfAndHalfPairKey,
+  parsePriceInput,
   groupMenuItemsForAdmin,
+  isPizzaCategory,
+  itemHasSizes,
   normalizeCategories,
   normalizeMenuItemCategories,
+  normalizeMenuItemSizes,
+  PIZZA_SIZE_TEMPLATES,
   resolveActiveCategory,
   resolveActiveSubcategory,
   slugify,
@@ -36,7 +50,7 @@ const ADMIN_LOGIN_PATH = '/acesso-admin-ralfs-2026'
 const ORDER_STORAGE_PREFIX = 'pizza-ralfs-last-order'
 const HOME_SPLASH_MS = 2000
 const HOME_SPLASH_FADE_MS = 400
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
 const CatalogSplashContext = createContext('hidden')
 
@@ -112,25 +126,45 @@ function sameItemId(left, right) {
   return normalizeItemId(left) === normalizeItemId(right)
 }
 
-function parsePriceInput(value) {
-  const normalized = String(value).trim().replace(',', '.')
-  return Number(normalized)
+function sameCartLine(left, right) {
+  const sizeMatch = (left.sizeId || '') === (right.sizeId || '')
+  const leftHalf = left.secondFlavorId || ''
+  const rightHalf = right.secondFlavorId || ''
+
+  if (leftHalf || rightHalf) {
+    if (!leftHalf || !rightHalf) return false
+    return (
+      sizeMatch &&
+      halfAndHalfPairKey(left.id, left.secondFlavorId) ===
+        halfAndHalfPairKey(right.id, right.secondFlavorId)
+    )
+  }
+
+  return sameItemId(left.id, right.id) && sizeMatch
 }
 
-function formatPriceForInput(price) {
-  if (price === '' || price === null || price === undefined) return ''
-  const numeric = Number(price)
-  if (Number.isNaN(numeric)) return ''
-  return numeric.toFixed(2).replace('.', ',')
+function cartLineKey(item) {
+  if (item.secondFlavorId) {
+    return `${halfAndHalfPairKey(item.id, item.secondFlavorId)}:${item.sizeId || ''}`
+  }
+  return `${normalizeItemId(item.id)}:${item.sizeId || ''}`
+}
+
+function formatBRL(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return 'R$ 0,00'
+  return `R$ ${numeric.toFixed(2).replace('.', ',')}`
 }
 
 function normalizeMenuItems(items, categories) {
-  return items.map((item) => ({
-    ...normalizeMenuItemCategories(item, categories),
-    id: normalizeItemId(item.id),
-    image: typeof item.image === 'string' ? item.image : '',
-    price: Number(item.price),
-  }))
+  return items.map((item) => {
+    const normalized = normalizeMenuItemCategories(item, categories)
+    return {
+      ...normalizeMenuItemSizes(normalized),
+      id: normalizeItemId(item.id),
+      image: typeof item.image === 'string' ? item.image : '',
+    }
+  })
 }
 
 function loadCategories() {
@@ -267,7 +301,8 @@ function App() {
       let detail = 'Falha ao atualizar produto'
       try {
         const errorBody = await response.json()
-        if (errorBody?.message) detail = errorBody.message
+        if (errorBody?.detail) detail = `${errorBody.message}: ${errorBody.detail}`
+        else if (errorBody?.message) detail = errorBody.message
       } catch {
         // mantem mensagem padrao
       }
@@ -540,6 +575,7 @@ function OrderPanel({
   finalizeOrder,
   downloadOrder,
   onClose,
+  formatBRL,
 }) {
   return (
     <aside className={className}>
@@ -561,17 +597,23 @@ function OrderPanel({
         {cart.length === 0 && <p className="order-empty-msg">Sua cesta esta vazia.</p>}
 
         {cart.map((item) => (
-          <div key={item.id} className="basket-item">
+          <div key={cartLineKey(item)} className="basket-item">
             <div>
               <strong>{item.name}</strong>
-              <span>R$ {(item.price * item.qty).toFixed(2)}</span>
+              {item.secondFlavorId && (
+                <span className="basket-item-half-note">Meia a meia · valor do sabor mais caro</span>
+              )}
+              {item.sizeLabel && !item.secondFlavorId && (
+                <span className="basket-item-size">{item.sizeLabel}</span>
+              )}
+              <span>{formatBRL(item.price * item.qty)}</span>
             </div>
             <div className="qty">
-              <button type="button" onClick={() => changeQuantity(item.id, -1)}>
+              <button type="button" onClick={() => changeQuantity(cartLineKey(item), -1)}>
                 -
               </button>
               <span>{item.qty}</span>
-              <button type="button" onClick={() => changeQuantity(item.id, 1)}>
+              <button type="button" onClick={() => changeQuantity(cartLineKey(item), 1)}>
                 +
               </button>
             </div>
@@ -642,6 +684,169 @@ function HomeSplash({ phase }) {
   )
 }
 
+function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
+  const hasSizes = itemHasSizes(menuItem)
+  const canHalfAndHalf = hasSizes && pizzaItems.length > 1
+  const [selectedSizeId, setSelectedSizeId] = useState(
+    () => menuItem.sizes?.[0]?.id || 'broto',
+  )
+  const [pizzaMode, setPizzaMode] = useState('inteira')
+  const [secondFlavorId, setSecondFlavorId] = useState('')
+
+  const selectedSize =
+    menuItem.sizes?.find((size) => size.id === selectedSizeId) || menuItem.sizes?.[0]
+  const unitPrice = hasSizes ? selectedSize?.price || menuItem.price : menuItem.price
+
+  const otherPizzaOptions = useMemo(
+    () => pizzaItems.filter((item) => !sameItemId(item.id, menuItem.id)),
+    [pizzaItems, menuItem.id],
+  )
+
+  const secondFlavor = useMemo(
+    () => otherPizzaOptions.find((item) => sameItemId(item.id, secondFlavorId)),
+    [otherPizzaOptions, secondFlavorId],
+  )
+
+  const displayPrice = useMemo(() => {
+    if (pizzaMode === 'meia' && secondFlavor) {
+      return computeHalfAndHalfPrice(menuItem, secondFlavor, selectedSizeId)
+    }
+    return unitPrice
+  }, [pizzaMode, secondFlavor, menuItem, selectedSizeId, unitPrice])
+
+  const handleAdd = () => {
+    const sizeLabel = selectedSize
+      ? `${selectedSize.label} (${selectedSize.pieces} pedacos)`
+      : ''
+
+    if (pizzaMode === 'meia') {
+      if (!secondFlavor) return
+
+      onAddToCart({
+        ...menuItem,
+        price: displayPrice,
+        sizeId: selectedSize?.id || '',
+        sizeLabel,
+        secondFlavorId: normalizeItemId(secondFlavor.id),
+        name: buildHalfAndHalfCartName(menuItem, secondFlavor, sizeLabel),
+      })
+      return
+    }
+
+    onAddToCart({
+      ...menuItem,
+      price: unitPrice,
+      sizeId: selectedSize?.id || '',
+      sizeLabel,
+      secondFlavorId: '',
+      name: sizeLabel ? `${menuItem.name} — ${selectedSize.label}` : menuItem.name,
+    })
+  }
+
+  const addDisabled = pizzaMode === 'meia' && !secondFlavor
+
+  return (
+    <article className="card">
+      <div className="card-media">
+        {menuItem.image ? (
+          <img
+            src={menuItem.image}
+            alt={menuItem.name}
+            className="card-image"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <div className="card-image placeholder">Sem foto</div>
+        )}
+      </div>
+      <h3>{menuItem.name}</h3>
+      <p className="card-description">({menuItem.description})</p>
+
+      {hasSizes ? (
+        <>
+          {canHalfAndHalf && (
+            <div className="pizza-mode">
+              <span className="pizza-sizes-label">Tipo</span>
+              <div className="pizza-mode-options" role="group" aria-label="Tipo da pizza">
+                <button
+                  type="button"
+                  className={`pizza-mode-btn${pizzaMode === 'inteira' ? ' is-active' : ''}`}
+                  onClick={() => setPizzaMode('inteira')}
+                >
+                  Inteira
+                </button>
+                <button
+                  type="button"
+                  className={`pizza-mode-btn${pizzaMode === 'meia' ? ' is-active' : ''}`}
+                  onClick={() => setPizzaMode('meia')}
+                >
+                  Meia a meia
+                </button>
+              </div>
+              {pizzaMode === 'meia' && (
+                <div className="pizza-half-flavor">
+                  <label className="pizza-half-flavor-label" htmlFor={`half-${menuItem.id}`}>
+                    Segundo sabor
+                  </label>
+                  <select
+                    id={`half-${menuItem.id}`}
+                    className="pizza-half-flavor-select"
+                    value={secondFlavorId}
+                    onChange={(event) => setSecondFlavorId(event.target.value)}
+                  >
+                    <option value="">Escolha o outro sabor</option>
+                    {otherPizzaOptions.map((item) => (
+                      <option key={item.id} value={normalizeItemId(item.id)}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="pizza-half-hint">
+                    Cobrado o valor do sabor mais caro neste tamanho.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="pizza-sizes">
+            <span className="pizza-sizes-label">Tamanho</span>
+            <div className="pizza-sizes-options" role="group" aria-label="Tamanho da pizza">
+              {menuItem.sizes.map((size) => (
+                <button
+                  key={size.id}
+                  type="button"
+                  className={`pizza-size-btn${selectedSizeId === size.id ? ' is-active' : ''}`}
+                  onClick={() => setSelectedSizeId(size.id)}
+                >
+                  <span className="pizza-size-btn-label">{size.label}</span>
+                  <span className="pizza-size-btn-meta">{size.pieces} pedacos</span>
+                  <span className="pizza-size-btn-price">R$ {size.price.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+        <strong className="card-price">{formatPriceRangeLabel(menuItem)}</strong>
+      )}
+
+      {hasSizes && (
+        <strong className="card-price card-price--selected">
+          R$ {displayPrice.toFixed(2)}
+          {pizzaMode === 'meia' && secondFlavor && (
+            <span className="card-price-note"> (sabor mais caro)</span>
+          )}
+        </strong>
+      )}
+
+      <button type="button" className="btn-add" onClick={handleAdd} disabled={addDisabled}>
+        Adicionar
+      </button>
+    </article>
+  )
+}
+
 function HomePage({ menuItems, tables, categories }) {
   const location = useLocation()
   const { categoryId, subcategoryId } = useParams()
@@ -675,6 +880,10 @@ function HomePage({ menuItems, tables, categories }) {
     activeCategory,
     activeSubcategory,
   )
+  const pizzaMenuItems = useMemo(
+    () => menuItems.filter((item) => isPizzaCategory(item.category)),
+    [menuItems],
+  )
 
   useEffect(() => {
     const saved = localStorage.getItem(orderStorageKey)
@@ -690,24 +899,26 @@ function HomePage({ menuItems, tables, categories }) {
     }
   }, [orderStorageKey])
 
-  const addToCart = (menuItem) => {
+  const addToCart = (cartItem) => {
     setCart((current) => {
-      const existing = current.find((item) => sameItemId(item.id, menuItem.id))
+      const existing = current.find((item) => sameCartLine(item, cartItem))
       if (existing) {
         return current.map((item) =>
-          sameItemId(item.id, menuItem.id) ? { ...item, qty: item.qty + 1 } : item,
+          sameCartLine(item, cartItem) ? { ...item, qty: item.qty + 1 } : item,
         )
       }
 
-      return [...current, { ...menuItem, qty: 1 }]
+      return [...current, { ...cartItem, qty: 1 }]
     })
   }
 
-  const changeQuantity = (id, delta) => {
+  const changeQuantity = (lineKey, delta) => {
     setCart((current) =>
       current
         .map((item) =>
-          sameItemId(item.id, id) ? { ...item, qty: Math.max(0, item.qty + delta) } : item,
+          cartLineKey(item) === lineKey
+            ? { ...item, qty: Math.max(0, item.qty + delta) }
+            : item,
         )
         .filter((item) => item.qty > 0),
     )
@@ -783,6 +994,9 @@ function HomePage({ menuItems, tables, categories }) {
         category: item.category,
         subcategory: item.subcategory || '',
         categoryLabel: getItemCategoryLabel(categories, item),
+        sizeId: item.sizeId || '',
+        sizeLabel: item.sizeLabel || '',
+        secondFlavorId: item.secondFlavorId || '',
         qty: item.qty,
         price: item.price,
       })),
@@ -871,6 +1085,7 @@ function HomePage({ menuItems, tables, categories }) {
     changeQuantity,
     finalizeOrder,
     downloadOrder,
+    formatBRL,
   }
 
   const orderPanelSheet = (
@@ -997,27 +1212,12 @@ function HomePage({ menuItems, tables, categories }) {
         )}
         <div className="menu-items-grid">
           {filteredMenu.map((menuItem) => (
-            <article key={menuItem.id} className="card">
-              <div className="card-media">
-                {menuItem.image ? (
-                  <img
-                    src={menuItem.image}
-                    alt={menuItem.name}
-                    className="card-image"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  <div className="card-image placeholder">Sem foto</div>
-                )}
-              </div>
-              <h3>{menuItem.name}</h3>
-              <p>({menuItem.description})</p>
-            <strong className="card-price">R$ {menuItem.price.toFixed(2)}</strong>
-            <button type="button" className="btn-add" onClick={() => addToCart(menuItem)}>
-              Adicionar
-            </button>
-            </article>
+            <MenuItemCard
+              key={menuItem.id}
+              menuItem={menuItem}
+              onAddToCart={addToCart}
+              pizzaItems={isPizzaCategory(menuItem.category) ? pizzaMenuItems : undefined}
+            />
           ))}
           {filteredMenu.length === 0 && (
             <p className="empty-category">Nenhum item cadastrado nesta categoria.</p>
@@ -1064,16 +1264,19 @@ const emptyItemForm = {
   name: '',
   description: '',
   price: '',
+  sizePrices: emptySizePrices(),
   image: '',
 }
 
 function buildItemFormFromMenuItem(item) {
+  const hasPizzaSizes = itemHasSizes(item)
   return {
     category: item.category,
     subcategory: item.subcategory || '',
     name: item.name,
     description: item.description,
-    price: formatPriceForInput(item.price),
+    price: hasPizzaSizes ? '' : formatPriceForInput(item.price),
+    sizePrices: buildSizePricesFromItem(item),
     image: item.image || '',
   }
 }
@@ -1084,8 +1287,11 @@ function AdminItemFormFields({
   subcategoryOptions,
   onChange,
   onPriceChange,
+  onSizePriceChange,
   onImageUpload,
 }) {
+  const showPizzaSizes = isPizzaCategory(form.category)
+
   return (
     <>
       <select name="category" value={form.category} onChange={onChange}>
@@ -1124,24 +1330,52 @@ function AdminItemFormFields({
         Foto do produto
         <input type="file" accept="image/*" onChange={onImageUpload} />
       </label>
-      <label className="price-field">
-        <span className="field-label">Valor do item</span>
-        <div className="price-input-wrap">
-          <span className="price-prefix" aria-hidden="true">
-            R$
-          </span>
-          <input
-            name="price"
-            type="text"
-            inputMode="decimal"
-            value={form.price}
-            onChange={onPriceChange}
-            placeholder="0,00"
-            aria-label="Valor em reais"
-          />
+      {showPizzaSizes ? (
+        <div className="pizza-sizes-admin field-full">
+          <span className="field-label">Precos por tamanho (pizzas)</span>
+          <div className="pizza-sizes-admin-grid">
+            {PIZZA_SIZE_TEMPLATES.map((template) => (
+              <label key={template.id} className="pizza-size-admin-field">
+                <span className="pizza-size-admin-label">
+                  {template.label} ({template.pieces} pedacos)
+                </span>
+                <div className="price-input-wrap">
+                  <span className="price-prefix" aria-hidden="true">
+                    R$
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={form.sizePrices?.[template.id] || ''}
+                    onChange={(event) => onSizePriceChange(template.id, event.target.value)}
+                    placeholder="0,00"
+                    aria-label={`Preco ${template.label}`}
+                  />
+                </div>
+              </label>
+            ))}
+          </div>
         </div>
-        <small className="field-hint">Ex: 49,90 ou 8,50</small>
-      </label>
+      ) : (
+        <label className="price-field">
+          <span className="field-label">Valor do item</span>
+          <div className="price-input-wrap">
+            <span className="price-prefix" aria-hidden="true">
+              R$
+            </span>
+            <input
+              name="price"
+              type="text"
+              inputMode="decimal"
+              value={form.price}
+              onChange={onPriceChange}
+              placeholder="0,00"
+              aria-label="Valor em reais"
+            />
+          </div>
+          <small className="field-hint">Digite os numeros; o valor formata sozinho (ex: 4990 vira 49,90).</small>
+        </label>
+      )}
     </>
   )
 }
@@ -1156,6 +1390,7 @@ function AdminEditItemModal({
   onSubmit,
   onChange,
   onPriceChange,
+  onSizePriceChange,
   onImageUpload,
 }) {
   useEffect(() => {
@@ -1205,6 +1440,7 @@ function AdminEditItemModal({
             subcategoryOptions={subcategoryOptions}
             onChange={onChange}
             onPriceChange={onPriceChange}
+            onSizePriceChange={onSizePriceChange}
             onImageUpload={onImageUpload}
           />
           {form.image && (
@@ -1640,6 +1876,225 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
   )
 }
 
+const ADMIN_SECTIONS = [
+  { id: 'novo', label: 'Novo item', hint: 'Cadastrar produto' },
+  { id: 'itens', label: 'Itens', hint: 'Lista do cardapio' },
+  { id: 'categorias', label: 'Categorias', hint: 'Grupos do menu' },
+  { id: 'qrcodes', label: 'QR Codes', hint: 'Mesas e impressao' },
+]
+
+function AdminItemPricing({ item }) {
+  if (itemHasSizes(item)) {
+    return (
+      <ul className="admin-item-sizes">
+        {item.sizes.map((size) => (
+          <li key={size.id} className="admin-item-size-row">
+            <span className="admin-item-size-label">
+              {size.label} <span className="admin-item-size-meta">({size.pieces} fatias)</span>
+            </span>
+            <span className="admin-item-size-price">{formatBRL(size.price)}</span>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  return (
+    <p className="admin-item-price">
+      <span className="admin-item-price-label">Preco</span>
+      <span className="admin-item-price-value">{formatBRL(item.price)}</span>
+    </p>
+  )
+}
+
+function AdminMenuItemRow({ item, onEdit, onRemove }) {
+  return (
+    <article className="admin-item">
+      <div className="admin-item-body">
+        <strong className="admin-item-name">{item.name}</strong>
+        <dl className="admin-item-meta">
+          <div className="admin-item-meta-row">
+            <dt>Imagem</dt>
+            <dd>
+              {item.image ? (
+                <a href={item.image} target="_blank" rel="noreferrer">
+                  Ver foto
+                </a>
+              ) : (
+                <span className="admin-item-muted">Sem foto</span>
+              )}
+            </dd>
+          </div>
+        </dl>
+        <p className="admin-item-description">{item.description}</p>
+        <AdminItemPricing item={item} />
+      </div>
+      <div className="admin-item-actions">
+        <button type="button" className="edit-btn" onClick={() => onEdit(item)}>
+          Editar
+        </button>
+        <button type="button" onClick={() => onRemove(item.id, item.name)}>
+          Remover
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function AdminItemsCatalog({ groupedMenu, openItemsCategoryId, onToggleCategory, onEdit, onRemove }) {
+  return (
+    <section className="admin-items-catalog admin-tab-panel-inner">
+      <header className="admin-panel-header">
+        <h3>Itens cadastrados</h3>
+        <p>Lista por categoria. Abra cada bloco para ver precos, tamanhos e acoes.</p>
+      </header>
+
+      <div className="category-accordion admin-menu-accordion">
+        {groupedMenu.knownGroups.map(({ category, totalCount, sections }) => {
+          const isOpen = openItemsCategoryId === category.id
+          const itemLabel = totalCount === 1 ? '1 item' : `${totalCount} itens`
+
+          return (
+            <article
+              key={category.id}
+              className={`category-accordion-item${isOpen ? ' is-open' : ''}`}
+            >
+              <button
+                type="button"
+                className="category-accordion-trigger"
+                onClick={() => onToggleCategory(category.id)}
+                aria-expanded={isOpen}
+              >
+                <span className="category-accordion-trigger-text">
+                  <span className="category-accordion-label">{category.label}</span>
+                  <span className="category-accordion-meta">{itemLabel}</span>
+                </span>
+                <span className="category-accordion-chevron" aria-hidden="true" />
+              </button>
+
+              <div className="category-accordion-panel">
+                {totalCount === 0 ? (
+                  <p className="admin-items-empty">Nenhum item nesta categoria.</p>
+                ) : (
+                  sections.map((section) => (
+                    <div key={section.id || 'geral'} className="admin-items-section">
+                      {section.label && (
+                        <h4 className="admin-items-section-title">{section.label}</h4>
+                      )}
+                      <div className="admin-list admin-list--nested">
+                        {section.items.map((item) => (
+                          <AdminMenuItemRow
+                            key={item.id}
+                            item={item}
+                            onEdit={onEdit}
+                            onRemove={onRemove}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </article>
+          )
+        })}
+
+        {groupedMenu.orphans.length > 0 && (
+          <article
+            className={`category-accordion-item admin-menu-accordion--orphans${
+              openItemsCategoryId === '__orphans__' ? ' is-open' : ''
+            }`}
+          >
+            <button
+              type="button"
+              className="category-accordion-trigger"
+              onClick={() => onToggleCategory('__orphans__')}
+              aria-expanded={openItemsCategoryId === '__orphans__'}
+            >
+              <span className="category-accordion-trigger-text">
+                <span className="category-accordion-label">Sem categoria cadastrada</span>
+                <span className="category-accordion-meta">
+                  {groupedMenu.orphans.length}{' '}
+                  {groupedMenu.orphans.length === 1 ? 'item' : 'itens'}
+                </span>
+              </span>
+              <span className="category-accordion-chevron" aria-hidden="true" />
+            </button>
+            <div className="category-accordion-panel">
+              <div className="admin-list admin-list--nested">
+                {groupedMenu.orphans.map((item) => (
+                  <article key={item.id} className="admin-item">
+                    <div className="admin-item-body">
+                      <strong className="admin-item-name">{item.name}</strong>
+                      <p className="admin-item-meta-row">
+                        <span className="admin-item-muted">
+                          Categoria no banco: {item.category || '—'}
+                        </span>
+                      </p>
+                      <p className="admin-item-description">{item.description}</p>
+                      <AdminItemPricing item={item} />
+                    </div>
+                    <div className="admin-item-actions">
+                      <button type="button" className="edit-btn" onClick={() => onEdit(item)}>
+                        Editar
+                      </button>
+                      <button type="button" onClick={() => onRemove(item.id, item.name)}>
+                        Remover
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </article>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function AdminTablesSection({ tables, tableNumber, setTableNumber, onAddTable, onRemoveTable }) {
+  return (
+    <section className="tables-admin admin-tab-panel-inner">
+      <header className="admin-panel-header">
+        <h3>QR Codes das mesas</h3>
+        <p>Primeiro cadastre as mesas abaixo. Depois abra a pagina de QR para imprimir um codigo por mesa.</p>
+      </header>
+
+      <form onSubmit={onAddTable} className="table-form">
+        <input
+          type="number"
+          min="1"
+          value={tableNumber}
+          onChange={(event) => setTableNumber(event.target.value)}
+          placeholder="Numero da mesa"
+        />
+        <button type="submit" className="admin-btn admin-btn-primary">
+          Adicionar mesa
+        </button>
+        <Link to="/qrcodes" className="admin-btn admin-btn-outline admin-link-btn">
+          Abrir pagina de QR Codes
+        </Link>
+      </form>
+
+      <div className="table-list">
+        {tables.length === 0 ? (
+          <p className="admin-items-empty">Nenhuma mesa cadastrada ainda.</p>
+        ) : (
+          tables.map((table) => (
+            <article key={table} className="table-item">
+              <span>Mesa #{table}</span>
+              <button type="button" onClick={() => onRemoveTable(table)}>
+                Remover
+              </button>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
+  )
+}
+
 function AdminPage({
   menuItems,
   categories,
@@ -1660,6 +2115,7 @@ function AdminPage({
   const [isSavingEditItem, setIsSavingEditItem] = useState(false)
   const [itemModal, setItemModal] = useState(null)
   const [openItemsCategoryId, setOpenItemsCategoryId] = useState(null)
+  const [adminTab, setAdminTab] = useState('itens')
   const closeItemModal = () => setItemModal(null)
 
   const groupedMenu = useMemo(
@@ -1676,10 +2132,24 @@ function AdminPage({
     const { name, value } = event.target
     setFormState((current) => {
       if (name === 'category') {
-        return { ...current, category: value, subcategory: '' }
+        return {
+          ...current,
+          category: value,
+          subcategory: '',
+          price: isPizzaCategory(value) ? '' : current.price,
+          sizePrices: isPizzaCategory(value) ? emptySizePrices() : emptySizePrices(),
+        }
       }
       return { ...current, [name]: value }
     })
+  }
+
+  const makeSizePriceChangeHandler = (setFormState) => (sizeId, value) => {
+    const masked = applyPriceMask(value)
+    setFormState((current) => ({
+      ...current,
+      sizePrices: { ...current.sizePrices, [sizeId]: masked },
+    }))
   }
 
   const makeImageUploadHandler = (setFormState) => (event) => {
@@ -1697,7 +2167,7 @@ function AdminPage({
   }
 
   const makePriceChangeHandler = (setFormState) => (event) => {
-    const value = event.target.value.replace(/[^\d.,]/g, '')
+    const value = applyPriceMask(event.target.value)
     setFormState((current) => ({ ...current, price: value }))
   }
 
@@ -1706,18 +2176,20 @@ function AdminPage({
       ...emptyItemForm,
       category: categories[0]?.id || 'pizzas',
       subcategory: '',
+      sizePrices: emptySizePrices(),
     })
   }
 
   const closeEditModal = () => {
     setEditingId(null)
-    setEditForm(emptyItemForm)
+    setEditForm({ ...emptyItemForm, sizePrices: emptySizePrices() })
   }
 
   const startEdit = (item) => {
     setEditingId(normalizeItemId(item.id))
     setEditForm(buildItemFormFromMenuItem(item))
     setOpenItemsCategoryId(item.category)
+    setAdminTab('itens')
   }
 
   const toggleItemsCategoryPanel = (categoryId) => {
@@ -1725,8 +2197,6 @@ function AdminPage({
   }
 
   const validateItemForm = (form, subcategoryOptions) => {
-    const parsedPrice = parsePriceInput(form.price)
-
     if (!form.name.trim()) {
       return {
         error: {
@@ -1745,6 +2215,38 @@ function AdminPage({
         },
       }
     }
+
+    const basePayload = {
+      category: form.category,
+      subcategory: subcategoryOptions.length > 0 ? form.subcategory || '' : '',
+      name: form.name.trim(),
+      description: form.description.trim(),
+      image: form.image.trim(),
+    }
+
+    if (isPizzaCategory(form.category)) {
+      const sizes = buildSizesFromForm(form.category, 0, form.sizePrices)
+      const invalid = sizes.find((size) => !size.price || size.price <= 0)
+      if (invalid) {
+        return {
+          error: {
+            variant: 'error',
+            title: 'Precos dos tamanhos',
+            description: 'Informe preco valido para Broto, Media e Grande.',
+          },
+        }
+      }
+
+      return {
+        payload: {
+          ...basePayload,
+          sizes,
+          price: Math.min(...sizes.map((size) => size.price)),
+        },
+      }
+    }
+
+    const parsedPrice = parsePriceInput(form.price)
     if (Number.isNaN(parsedPrice) || parsedPrice <= 0) {
       return {
         error: {
@@ -1757,12 +2259,9 @@ function AdminPage({
 
     return {
       payload: {
-        category: form.category,
-        subcategory: subcategoryOptions.length > 0 ? form.subcategory || '' : '',
-        name: form.name.trim(),
-        description: form.description.trim(),
+        ...basePayload,
         price: parsedPrice,
-        image: form.image.trim(),
+        sizes: [],
       },
     }
   }
@@ -1784,6 +2283,7 @@ function AdminPage({
         description: `"${validation.payload.name}" foi salvo no banco com sucesso.`,
       })
       resetNewItemForm()
+      setAdminTab('itens')
     } catch (error) {
       setItemModal({
         variant: 'error',
@@ -1862,39 +2362,99 @@ function AdminPage({
 
   return (
     <section className="admin">
-      <h2>Painel Admin</h2>
-      <p>Cadastre itens do cardapio e gerencie as mesas/QR Codes.</p>
-      {menuSyncMessage && <p className="menu-sync-message">{menuSyncMessage}</p>}
+      <header className="admin-page-header">
+        <h2>Painel Admin</h2>
+        <p>Escolha uma secao abaixo: cadastro, lista, categorias ou mesas.</p>
+        {menuSyncMessage && <p className="menu-sync-message">{menuSyncMessage}</p>}
+      </header>
 
-      <CategoriesAdmin
-        categories={categories}
-        setCategories={setCategories}
-        saveCategories={saveCategories}
-      />
-
-      <h3>Novo item</h3>
-      <form onSubmit={handleNewItemSubmit} className="admin-form">
-        <AdminItemFormFields
-          form={newItemForm}
-          categories={categories}
-          subcategoryOptions={newSubcategoryOptions}
-          onChange={makeFormChangeHandler(setNewItemForm)}
-          onPriceChange={makePriceChangeHandler(setNewItemForm)}
-          onImageUpload={makeImageUploadHandler(setNewItemForm)}
-        />
-        <div className="admin-form-actions">
-          <button type="submit" disabled={isSavingNewItem}>
-            {isSavingNewItem ? 'Salvando...' : 'Salvar item'}
+      <nav className="admin-tabs" role="tablist" aria-label="Secoes do admin">
+        {ADMIN_SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            role="tab"
+            aria-selected={adminTab === section.id}
+            className={`admin-tab${adminTab === section.id ? ' is-active' : ''}`}
+            onClick={() => setAdminTab(section.id)}
+          >
+            <span className="admin-tab-label">{section.label}</span>
+            <span className="admin-tab-hint">{section.hint}</span>
           </button>
-        </div>
-      </form>
+        ))}
+      </nav>
 
-      {newItemForm.image && (
-        <div className="image-preview">
-          <p>Pre-visualizacao da foto</p>
-          <img src={newItemForm.image} alt="Preview do item" />
-        </div>
-      )}
+      <div className="admin-tab-content">
+        {adminTab === 'categorias' && (
+          <div role="tabpanel" className="admin-tab-panel">
+            <CategoriesAdmin
+              categories={categories}
+              setCategories={setCategories}
+              saveCategories={saveCategories}
+            />
+          </div>
+        )}
+
+        {adminTab === 'novo' && (
+          <div role="tabpanel" className="admin-tab-panel">
+            <header className="admin-panel-header">
+              <h3>Novo item</h3>
+              <p>Preencha os dados e salve para adicionar ao cardapio.</p>
+            </header>
+            <form onSubmit={handleNewItemSubmit} className="admin-form">
+              <AdminItemFormFields
+                form={newItemForm}
+                categories={categories}
+                subcategoryOptions={newSubcategoryOptions}
+                onChange={makeFormChangeHandler(setNewItemForm)}
+                onPriceChange={makePriceChangeHandler(setNewItemForm)}
+                onSizePriceChange={makeSizePriceChangeHandler(setNewItemForm)}
+                onImageUpload={makeImageUploadHandler(setNewItemForm)}
+              />
+              <div className="admin-form-actions">
+                <button
+                  type="submit"
+                  className="admin-btn admin-btn-primary"
+                  disabled={isSavingNewItem}
+                >
+                  {isSavingNewItem ? 'Salvando...' : 'Salvar item'}
+                </button>
+              </div>
+            </form>
+
+            {newItemForm.image && (
+              <div className="image-preview">
+                <p>Pre-visualizacao da foto</p>
+                <img src={newItemForm.image} alt="Preview do item" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {adminTab === 'itens' && (
+          <div role="tabpanel" className="admin-tab-panel">
+            <AdminItemsCatalog
+              groupedMenu={groupedMenu}
+              openItemsCategoryId={openItemsCategoryId}
+              onToggleCategory={toggleItemsCategoryPanel}
+              onEdit={startEdit}
+              onRemove={removeItem}
+            />
+          </div>
+        )}
+
+        {adminTab === 'qrcodes' && (
+          <div role="tabpanel" className="admin-tab-panel">
+            <AdminTablesSection
+              tables={tables}
+              tableNumber={tableNumber}
+              setTableNumber={setTableNumber}
+              onAddTable={addTable}
+              onRemoveTable={removeTable}
+            />
+          </div>
+        )}
+      </div>
 
       <AdminEditItemModal
         editingId={editingId}
@@ -1906,172 +2466,9 @@ function AdminPage({
         onSubmit={handleEditItemSubmit}
         onChange={makeFormChangeHandler(setEditForm)}
         onPriceChange={makePriceChangeHandler(setEditForm)}
+        onSizePriceChange={makeSizePriceChangeHandler(setEditForm)}
         onImageUpload={makeImageUploadHandler(setEditForm)}
       />
-
-      <section className="admin-items-catalog">
-        <h3>Itens cadastrados</h3>
-        <p className="admin-items-catalog-hint">
-          Lista agrupada por categoria. Abra cada bloco para editar ou remover.
-        </p>
-
-        <div className="category-accordion admin-menu-accordion">
-          {groupedMenu.knownGroups.map(({ category, totalCount, sections }) => {
-            const isOpen = openItemsCategoryId === category.id
-            const itemLabel = totalCount === 1 ? '1 item' : `${totalCount} itens`
-
-            return (
-              <article
-                key={category.id}
-                className={`category-accordion-item${isOpen ? ' is-open' : ''}`}
-              >
-                <button
-                  type="button"
-                  className="category-accordion-trigger"
-                  onClick={() => toggleItemsCategoryPanel(category.id)}
-                  aria-expanded={isOpen}
-                >
-                  <span className="category-accordion-trigger-text">
-                    <span className="category-accordion-label">{category.label}</span>
-                    <span className="category-accordion-meta">{itemLabel}</span>
-                  </span>
-                  <span className="category-accordion-chevron" aria-hidden="true" />
-                </button>
-
-                <div className="category-accordion-panel">
-                  {totalCount === 0 ? (
-                    <p className="admin-items-empty">Nenhum item nesta categoria.</p>
-                  ) : (
-                    sections.map((section) => (
-                      <div key={section.id || 'geral'} className="admin-items-section">
-                        {section.label && (
-                          <h4 className="admin-items-section-title">{section.label}</h4>
-                        )}
-                        <div className="admin-list admin-list--nested">
-                          {section.items.map((item) => (
-                            <article key={item.id} className="admin-item">
-                              <div className="admin-item-body">
-                                <strong className="admin-item-name">{item.name}</strong>
-                                <dl className="admin-item-meta">
-                                  <div className="admin-item-meta-row">
-                                    <dt>Imagem:</dt>
-                                    <dd>
-                                      {item.image ? (
-                                        <a href={item.image} target="_blank" rel="noreferrer">
-                                          Ver foto
-                                        </a>
-                                      ) : (
-                                        <span className="admin-item-muted">Sem foto</span>
-                                      )}
-                                    </dd>
-                                  </div>
-                                </dl>
-                                <p className="admin-item-description">{item.description}</p>
-                                <p className="admin-item-price">R$ {item.price.toFixed(2)}</p>
-                              </div>
-                              <div className="admin-item-actions">
-                                <button
-                                  type="button"
-                                  className="edit-btn"
-                                  onClick={() => startEdit(item)}
-                                >
-                                  Editar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeItem(item.id, item.name)}
-                                >
-                                  Remover
-                                </button>
-                              </div>
-                            </article>
-                          ))}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </article>
-            )
-          })}
-
-          {groupedMenu.orphans.length > 0 && (
-            <article
-              className={`category-accordion-item admin-menu-accordion--orphans${
-                openItemsCategoryId === '__orphans__' ? ' is-open' : ''
-              }`}
-            >
-              <button
-                type="button"
-                className="category-accordion-trigger"
-                onClick={() => toggleItemsCategoryPanel('__orphans__')}
-                aria-expanded={openItemsCategoryId === '__orphans__'}
-              >
-                <span className="category-accordion-trigger-text">
-                  <span className="category-accordion-label">Sem categoria cadastrada</span>
-                  <span className="category-accordion-meta">
-                    {groupedMenu.orphans.length}{' '}
-                    {groupedMenu.orphans.length === 1 ? 'item' : 'itens'}
-                  </span>
-                </span>
-                <span className="category-accordion-chevron" aria-hidden="true" />
-              </button>
-              <div className="category-accordion-panel">
-                <div className="admin-list admin-list--nested">
-                  {groupedMenu.orphans.map((item) => (
-                    <article key={item.id} className="admin-item">
-                      <div className="admin-item-body">
-                        <strong className="admin-item-name">{item.name}</strong>
-                        <p className="admin-item-meta-row">
-                          <span className="admin-item-muted">
-                            Categoria no banco: {item.category || '—'}
-                          </span>
-                        </p>
-                        <p className="admin-item-description">{item.description}</p>
-                        <p className="admin-item-price">R$ {item.price.toFixed(2)}</p>
-                      </div>
-                      <div className="admin-item-actions">
-                        <button type="button" className="edit-btn" onClick={() => startEdit(item)}>
-                          Editar
-                        </button>
-                        <button type="button" onClick={() => removeItem(item.id, item.name)}>
-                          Remover
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </article>
-          )}
-        </div>
-      </section>
-
-      <section className="tables-admin">
-        <h3>Mesas e QR Codes</h3>
-        <form onSubmit={addTable} className="table-form">
-          <input
-            type="number"
-            min="1"
-            value={tableNumber}
-            onChange={(event) => setTableNumber(event.target.value)}
-            placeholder="Numero da mesa"
-          />
-          <button type="submit">Adicionar mesa</button>
-          <Link to="/qrcodes">Ver QR Codes</Link>
-        </form>
-
-        <div className="table-list">
-          {tables.map((table) => (
-            <article key={table} className="table-item">
-              <span>Mesa #{table}</span>
-              <button type="button" onClick={() => removeTable(table)}>
-                Remover
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
 
       <AdminFeedbackModal modal={itemModal} onClose={closeItemModal} />
     </section>

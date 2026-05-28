@@ -553,6 +553,10 @@ body.home-splash-active .brand-header {
   color: var(--brand-text-muted);
 }
 
+.card-description {
+  margin: 0 0 8px;
+}
+
 .card-price {
   display: block;
   font-size: 1.05rem;
@@ -560,6 +564,175 @@ body.home-splash-active .brand-header {
   margin-bottom: 10px;
   margin-top: auto;
   color: var(--brand-red);
+}
+
+.card-price--selected {
+  margin-top: 4px;
+}
+
+.pizza-sizes {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pizza-sizes-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--brand-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pizza-mode {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pizza-mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pizza-mode-btn {
+  padding: 10px 8px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--brand-dark);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.pizza-mode-btn.is-active {
+  border-color: var(--brand-red);
+  background: rgba(139, 30, 30, 0.06);
+  box-shadow: 0 0 0 2px rgba(139, 30, 30, 0.12);
+}
+
+.pizza-half-flavor {
+  display: grid;
+  gap: 6px;
+}
+
+.pizza-half-flavor-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--brand-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pizza-half-flavor-select {
+  width: 100%;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  background: #fff;
+  color: var(--brand-dark);
+}
+
+.pizza-half-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--brand-text-muted);
+  line-height: 1.35;
+}
+
+.card-price-note {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--brand-text-muted);
+}
+
+.btn-add:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.basket-item-half-note {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--brand-text-muted);
+  margin-top: 2px;
+}
+
+.pizza-sizes-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pizza-size-btn {
+  display: grid;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.pizza-size-btn.is-active {
+  border-color: var(--brand-red);
+  background: rgba(139, 30, 30, 0.06);
+  box-shadow: 0 0 0 2px rgba(139, 30, 30, 0.12);
+}
+
+.pizza-size-btn-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--brand-dark);
+}
+
+.pizza-size-btn-meta {
+  font-size: 0.7rem;
+  color: var(--brand-text-muted);
+}
+
+.pizza-size-btn-price {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--brand-red);
+}
+
+.pizza-sizes-admin {
+  display: grid;
+  gap: 10px;
+}
+
+.pizza-sizes-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pizza-size-admin-field {
+  display: grid;
+  gap: 6px;
+}
+
+.pizza-size-admin-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--brand-dark);
+}
+
+.basket-item-size {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--brand-text-muted);
 }
 
 .btn-add,
@@ -997,10 +1170,63 @@ body.home-splash-active .brand-header {
 }
 
 .admin-item-price {
-  margin: 0;
-  font-size: 1.1rem;
+  margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.admin-item-price-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--brand-text-muted);
+}
+
+.admin-item-price-value {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--brand-red);
+}
+
+.admin-item-sizes {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  background: rgba(197, 160, 89, 0.1);
+  border: 1px solid rgba(197, 160, 89, 0.25);
+  border-radius: 10px;
+}
+
+.admin-item-size-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-item-size-label {
+  font-weight: 600;
+  color: var(--brand-dark);
+  font-size: 0.92rem;
+}
+
+.admin-item-size-meta {
+  font-weight: 500;
+  color: var(--brand-text-muted);
+  font-size: 0.85rem;
+}
+
+.admin-item-size-price {
   font-weight: 700;
   color: var(--brand-red);
+  font-size: 0.95rem;
+  white-space: nowrap;
 }
 
 .admin-item-actions {
@@ -1546,6 +1772,117 @@ body.home-splash-active .brand-header {
   max-height: 1200px;
   opacity: 1;
   padding: 16px;
+}
+
+.admin-page-header {
+  margin-bottom: 20px;
+}
+
+.admin-page-header h2 {
+  margin: 0 0 6px;
+}
+
+.admin-page-header p {
+  margin: 0;
+  color: var(--brand-text-muted);
+}
+
+.admin-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+@media (min-width: 720px) {
+  .admin-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.admin-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 2px solid rgba(197, 160, 89, 0.35);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.admin-tab:hover {
+  border-color: var(--brand-gold);
+  background: var(--brand-cream-bg);
+}
+
+.admin-tab.is-active {
+  border-color: var(--brand-gold);
+  background: linear-gradient(135deg, rgba(197, 160, 89, 0.2) 0%, rgba(255, 251, 245, 1) 100%);
+  box-shadow: 0 4px 14px rgba(92, 64, 51, 0.12);
+}
+
+.admin-tab-label {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--brand-dark);
+}
+
+.admin-tab-hint {
+  font-size: 0.78rem;
+  color: var(--brand-text-muted);
+}
+
+.admin-tab-content {
+  min-height: 200px;
+}
+
+.admin-tab-panel {
+  animation: admin-tab-in 0.2s ease;
+}
+
+@keyframes admin-tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-panel-header {
+  margin-bottom: 16px;
+}
+
+.admin-panel-header h3 {
+  margin: 0 0 6px;
+  font-family: 'Playfair Display', Georgia, serif;
+  color: var(--brand-dark);
+}
+
+.admin-panel-header p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--brand-text-muted);
+}
+
+.admin-tab-panel-inner {
+  margin-bottom: 0;
+}
+
+.admin-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
 }
 
 .admin-items-catalog {

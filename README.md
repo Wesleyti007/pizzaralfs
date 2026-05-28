@@ -28,12 +28,15 @@ npm run db:seed
 
 O `seed.sql` importa os 6 itens iniciais do cardapio (Margherita, Calabresa, etc.) sem duplicar se ja existirem.
 
-Se o banco ja existia antes, rode a migracao de categorias flexiveis:
+Se o banco ja existia antes, rode as migracoes:
 
 ```bash
 cd backend
 psql -U postgres -d pizzaralfs -f sql/migrate_categories.sql
+psql -U postgres -d pizzaralfs -f sql/migrate_pizza_sizes.sql
 ```
+
+**Tamanhos de pizza:** Broto (4 pedacos), Media (6), Grande (8), cada um com preco proprio no admin.
 
 ## 2) Configurar e rodar a API
 
