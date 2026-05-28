@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+
+:root {
+  --brand-dark: #1c1614;
+  --brand-dark-soft: #2a211e;
+  --brand-gold: #c5a059;
+  --brand-gold-light: #e0c27a;
+  --brand-red: #8b1e1e;
+  --brand-red-deep: #6e1515;
+  --brand-cream: #ede6d6;
+  --brand-cream-bg: #f7f2ea;
+  --brand-cream-card: #fffdf8;
+  --brand-text: #2a211e;
+  --brand-text-muted: #5c4f47;
+  --shadow-soft: 0 8px 24px rgba(28, 22, 20, 0.08);
+  --shadow-card: 0 4px 16px rgba(28, 22, 20, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img,
+svg,
+video {
+  max-width: 100%;
+  height: auto;
+}
+
+html {
+  width: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  font-family: 'Source Sans 3', system-ui, sans-serif;
+  background: var(--brand-cream-bg);
+  color: var(--brand-text);
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+}

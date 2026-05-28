@@ -1,0 +1,22 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "API de pedidos da Pizza Ralfs",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "db:init": "psql -U postgres -d pizzaralfs -f sql/init.sql",
+    "db:seed": "psql -U postgres -d pizzaralfs -f sql/seed.sql"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pg": "^8.21.0"
+  }
+}
