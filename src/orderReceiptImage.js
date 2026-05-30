@@ -76,6 +76,14 @@ function buildReceiptLines(order) {
   }
 
   lines.push({ gap: 6 })
+  const fee = Number(order.deliveryFee ?? 0)
+  const sub = Number(order.itemsSubtotal ?? 0)
+  if (fee > 0) {
+    if (sub > 0) {
+      lines.push({ text: `Subtotal: ${formatMoney(sub)}` })
+    }
+    lines.push({ text: `Taxa de entrega: ${formatMoney(fee)}` })
+  }
   lines.push({ text: `Total: ${formatMoney(order.total ?? order.totalAmount)}`, bold: true, size: 18 })
   lines.push({ gap: 8 })
   lines.push({

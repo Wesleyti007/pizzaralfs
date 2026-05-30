@@ -146,13 +146,80 @@ Admin: `https://seudominio.com.br/acesso-admin-ralfs-2026` — login `admin` / `
 
 ---
 
+## Atualizar producao (novas versoes)
+
+Sempre que mudar codigo no Mac e quiser publicar no VPS:
+
+### 1 — Enviar arquivos para o VPS
+
+**Opcao A — rsync (sem GitHub)** — no Mac, na pasta do projeto:
+
+```bash
+cd /Users/coinfocoinfo/Documents/PizzaRalfs
+rsync -avz --exclude node_modules --exclude dist --exclude .git --exclude deploy/pgdata \
+  ./ root@SEU_IP:/opt/pizza-ralfs/
+```
+
+**Opcao B — Git** — no VPS:
+
+```bash
+cd /opt/pizza-ralfs
+git pull
+```
+
+### 2 — Rebuild e subir containers
+
+```bash
+cd /opt/pizza-ralfs/deploy
+docker compose up -d --build
+```
+
+Espere terminar (recompila o front dentro do Docker).
+
+### 3 — Migracao do banco (se pediu delivery ou mudou SQL)
+
+O Postgres em producao **nao** reaplica `init.sql` sozinho. Rode migracoes novas **uma vez**:
+
+```bash
+cd /opt/pizza-ralfs/deploy
+docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_orders_delivery.sql
+docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_delivery_pricing.sql
+```
+
+Se aparecer `ALTER TABLE` varias vezes, ok. Se disser que a coluna ja existe, tambem ok.
+
+Outras migracoes (se ainda nao rodou no VPS):
+
+```bash
+docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_categories.sql
+docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_pizza_sizes.sql
+docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_orders_status.sql
+```
+
+### 4 — Conferir
+
+```bash
+docker compose ps
+curl -s https://pizzaralfs.com.br/health
+```
+
+No celular: abra `https://pizzaralfs.com.br/` (sem `?mesa=`) e teste um pedido delivery.
+
+**Backup antes de migrar (recomendado):**
+
+```bash
+docker compose exec -T db pg_dump -U pizzaralfs pizzaralfs > backup-$(date +%Y%m%d).sql
+```
+
+---
+
 ## Comandos uteis depois
 
 | O que fazer | Comando (na pasta `deploy`) |
 |-------------|-----------------------------|
 | Ver logs | `docker compose logs -f app` |
 | Reiniciar | `docker compose restart` |
-| Atualizar codigo | `git pull` e `docker compose up -d --build` |
+| Atualizar codigo | rsync ou `git pull` + `docker compose up -d --build` + migracoes |
 | Parar tudo | `docker compose down` |
 
 ---

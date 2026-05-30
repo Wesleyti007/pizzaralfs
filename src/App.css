@@ -396,6 +396,43 @@ body.home-splash-active .brand-header {
   align-items: flex-start;
 }
 
+.order-success-toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  z-index: 1200;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #166534;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  animation: order-toast-in 0.35s ease both;
+}
+
+@keyframes order-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (min-width: 900px) {
+  .order-success-toast {
+    left: auto;
+    right: 24px;
+    bottom: 24px;
+    max-width: 360px;
+  }
+}
+
 .last-order-banner {
   grid-column: 1 / -1;
   border: 1px solid rgba(22, 101, 52, 0.4);
@@ -1610,6 +1647,101 @@ body.home-splash-active .brand-header {
   font-size: 0.78rem;
   color: var(--brand-red-deep);
   font-weight: 600;
+}
+
+.order-totals-breakdown {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.order-subtotal,
+.order-delivery-fee {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--brand-text-muted);
+}
+
+.order-destination-editor {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  background: var(--brand-cream-card);
+  display: grid;
+  gap: 10px;
+}
+
+.order-destination-editor-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.order-destination-type {
+  display: flex;
+  gap: 16px;
+  font-size: 0.9rem;
+}
+
+.order-destination-type label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.order-destination-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.order-destination-field input {
+  font-weight: 400;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+}
+
+.order-destination-delivery-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.order-destination-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.orders-card-fee-note {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--brand-text-muted);
+}
+
+.admin-delivery-settings {
+  max-width: 420px;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-delivery-settings-form {
+  display: grid;
+  gap: 12px;
+}
+
+.pizza-sizes-admin--delivery {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(197, 160, 89, 0.5);
+}
+
+.field-hint-block {
+  display: block;
+  margin-bottom: 8px;
 }
 
 .orders-card-delivery {

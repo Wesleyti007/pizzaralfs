@@ -21,12 +21,17 @@ export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
   return PIZZA_SIZE_TEMPLATES.map((template) => {
     const existing = byId.get(template.id) || {}
     const price = Number(existing.price ?? fallback)
-    return {
+    const deliveryPrice = Number(existing.deliveryPrice)
+    const size = {
       id: template.id,
       label: template.label,
       pieces: template.pieces,
       price: Number.isFinite(price) && price >= 0 ? price : 0,
     }
+    if (Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
+      size.deliveryPrice = deliveryPrice
+    }
+    return size
   })
 }
 
@@ -53,7 +58,8 @@ export function normalizeMenuItemRow(row) {
         basePrice
       : basePrice
 
-  return {
+  const deliveryPrice = Number(row.delivery_price)
+  const item = {
     id: row.id,
     category,
     subcategory: row.subcategory || '',
@@ -63,6 +69,10 @@ export function normalizeMenuItemRow(row) {
     image: row.image || '',
     sizes,
   }
+  if (Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
+    item.deliveryPrice = deliveryPrice
+  }
+  return item
 }
 
 export function buildMenuItemPayload(body) {
@@ -88,6 +98,7 @@ export function buildMenuItemPayload(body) {
         price,
         image,
         sizes,
+        deliveryPrice: null,
       },
     }
   }
@@ -95,6 +106,15 @@ export function buildMenuItemPayload(body) {
   const price = Number(body.price)
   if (!name || Number.isNaN(price) || price <= 0) {
     return { error: 'Dados inválidos do produto' }
+  }
+
+  const rawDelivery = body.deliveryPrice
+  const deliveryPrice =
+    rawDelivery === null || rawDelivery === undefined || rawDelivery === ''
+      ? null
+      : Number(rawDelivery)
+  if (deliveryPrice !== null && (Number.isNaN(deliveryPrice) || deliveryPrice <= 0)) {
+    return { error: 'Preço delivery inválido' }
   }
 
   return {
@@ -106,6 +126,7 @@ export function buildMenuItemPayload(body) {
       price,
       image,
       sizes: [],
+      deliveryPrice,
     },
   }
 }

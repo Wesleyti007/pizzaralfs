@@ -59,6 +59,22 @@ function buildDestinationHtml(order) {
   return `<p class="print-line print-mesa">${escapeHtml(mesa)}</p>`
 }
 
+function buildTotalsHtml(order) {
+  const total = order.totalAmount ?? order.total
+  const fee = Number(order.deliveryFee ?? 0)
+  const sub = Number(order.itemsSubtotal ?? 0)
+  if (fee > 0) {
+    const subtotalLine =
+      sub > 0
+        ? `<p class="print-line">Subtotal: ${formatOrderMoney(sub)}</p>`
+        : ''
+    return `${subtotalLine}
+      <p class="print-line">Taxa entrega: ${formatOrderMoney(fee)}</p>
+      <p class="print-total">TOTAL: ${formatOrderMoney(total)}</p>`
+  }
+  return `<p class="print-total">TOTAL: ${formatOrderMoney(total)}</p>`
+}
+
 function buildViaHtml(order, items, viaNumber) {
   const isDelivery = isDeliveryOrder(order.tableNumber ?? order.mesa, order.orderType)
   const isCanhoto = viaNumber === 2
@@ -79,7 +95,7 @@ function buildViaHtml(order, items, viaNumber) {
       <p class="print-divider">--------------------------------</p>
       <div class="print-items">${buildItemLinesHtml(items)}</div>
       <p class="print-divider">--------------------------------</p>
-      <p class="print-total">TOTAL: ${formatOrderMoney(order.totalAmount ?? order.total)}</p>
+      ${buildTotalsHtml(order)}
       <p class="print-obs">Obs: ${escapeHtml(order.observation || 'Sem observacoes')}</p>
       ${isDelivery && isCanhoto ? buildDeliveryBlockHtml(order, { canhoto: true }) : ''}
     </section>

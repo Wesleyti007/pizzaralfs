@@ -87,6 +87,19 @@ export async function fetchOrdersReport(apiBaseUrl, from, to) {
   return body
 }
 
+export async function patchOrderDetails(apiBaseUrl, orderId, payload) {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.message || 'Falha ao atualizar pedido')
+  }
+  return response.json()
+}
+
 export async function patchOrderStatus(apiBaseUrl, orderId, status) {
   const response = await fetch(`${apiBaseUrl}/orders/${orderId}/status`, {
     method: 'PATCH',

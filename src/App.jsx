@@ -23,6 +23,7 @@ import {
   orderStatusLabel,
   dateInputDaysAgo,
   fetchOrdersReport,
+  patchOrderDetails,
   patchOrderStatus,
   todayDateInputValue,
 } from './orders.js'
@@ -72,6 +73,7 @@ import {
   resolveActiveSubcategory,
   slugify,
 } from './catalog.js'
+import { calcCartTotals, computeMultiFlavorPriceForMode, resolveUnitPrice } from './pricing.js'
 
 const STORAGE_KEY = 'pizza-ralfs-menu'
 const CATEGORIES_STORAGE_KEY = 'pizza-ralfs-categories'
@@ -268,6 +270,7 @@ function App() {
     () => localStorage.getItem(AUTH_STORAGE_KEY) === 'true',
   )
   const [menuSyncMessage, setMenuSyncMessage] = useState('')
+  const [deliveryFee, setDeliveryFee] = useState(0)
 
   const saveTables = (items) => {
     const normalized = Array.from(new Set(items)).sort((a, b) => a - b)
@@ -292,6 +295,16 @@ function App() {
       }
 
       try {
+        const settingsResponse = await fetch(`${API_BASE_URL}/settings`)
+        if (settingsResponse.ok) {
+          const settings = await settingsResponse.json()
+          setDeliveryFee(Math.max(0, Number(settings.deliveryFee) || 0))
+        }
+      } catch {
+        // mantém taxa local
+      }
+
+      try {
         const response = await fetch(`${API_BASE_URL}/menu-items`)
         if (!response.ok) {
           throw new Error('Falha ao carregar produtos')
@@ -312,6 +325,20 @@ function App() {
 
     loadDataFromApi()
   }, [])
+
+  const saveDeliverySettings = async (fee) => {
+    const response = await fetch(`${API_BASE_URL}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deliveryFee: Math.max(0, Number(fee) || 0) }),
+    })
+    if (!response.ok) {
+      throw new Error('Falha ao salvar taxa de entrega')
+    }
+    const saved = await response.json()
+    setDeliveryFee(Math.max(0, Number(saved.deliveryFee) || 0))
+    return saved
+  }
 
   const createMenuItem = async (itemData) => {
     const response = await fetch(`${API_BASE_URL}/menu-items`, {
@@ -431,19 +458,34 @@ function App() {
             <Route
               path="/"
               element={
-                <HomePage menuItems={menuItems} tables={tables} categories={categories} />
+                <HomePage
+                  menuItems={menuItems}
+                  tables={tables}
+                  categories={categories}
+                  deliveryFee={deliveryFee}
+                />
               }
             />
             <Route
               path="/categoria/:categoryId"
               element={
-                <HomePage menuItems={menuItems} tables={tables} categories={categories} />
+                <HomePage
+                  menuItems={menuItems}
+                  tables={tables}
+                  categories={categories}
+                  deliveryFee={deliveryFee}
+                />
               }
             />
             <Route
               path="/categoria/:categoryId/:subcategoryId"
               element={
-                <HomePage menuItems={menuItems} tables={tables} categories={categories} />
+                <HomePage
+                  menuItems={menuItems}
+                  tables={tables}
+                  categories={categories}
+                  deliveryFee={deliveryFee}
+                />
               }
             />
             <Route
@@ -467,6 +509,8 @@ function App() {
                   menuSyncMessage={menuSyncMessage}
                   tables={tables}
                   saveTables={saveTables}
+                  deliveryFee={deliveryFee}
+                  saveDeliverySettings={saveDeliverySettings}
                 />
               }
             />
@@ -664,6 +708,8 @@ function OrderPanel({
   onDeliveryFieldChange,
   deliveryFieldErrors,
   deliveryFieldError,
+  subtotal,
+  deliveryFee,
   total,
   observation,
   setObservation,
@@ -816,7 +862,17 @@ function OrderPanel({
               {deliveryFieldError && <p className="order-message">{deliveryFieldError}</p>}
             </div>
           )}
-          <h3 className="order-total">Total: R$ {total.toFixed(2)}</h3>
+          <div className="order-totals-breakdown">
+            <p className="order-subtotal">
+              Subtotal: R$ {subtotal.toFixed(2)}
+            </p>
+            {isDelivery && deliveryFee > 0 && (
+              <p className="order-delivery-fee">
+                Taxa de entrega: R$ {deliveryFee.toFixed(2)}
+              </p>
+            )}
+            <h3 className="order-total">Total: R$ {total.toFixed(2)}</h3>
+          </div>
           <label className="observation-label" htmlFor={observationId}>
             Observação do pedido
           </label>
@@ -867,7 +923,7 @@ function HomeSplash({ phase }) {
   )
 }
 
-function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
+function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = false }) {
   const hasSizes = itemHasSizes(menuItem)
   const [selectedSizeId, setSelectedSizeId] = useState(
     () => menuItem.sizes?.[0]?.id || 'broto',
@@ -880,7 +936,9 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
     menuItem.sizes?.find((size) => size.id === selectedSizeId) || menuItem.sizes?.[0]
   const pieceCount = getPiecesForSize(selectedSizeId, menuItem.sizes)
   const maxFlavors = getMaxFlavorsForSize(selectedSizeId)
-  const unitPrice = hasSizes ? selectedSize?.price || menuItem.price : menuItem.price
+  const unitPrice = hasSizes
+    ? resolveUnitPrice(menuItem, selectedSizeId, forDelivery)
+    : resolveUnitPrice(menuItem, '', forDelivery)
 
   const pizzaById = useMemo(() => {
     const map = new Map()
@@ -906,8 +964,13 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
 
   const displayPrice = useMemo(() => {
     if (selectedFlavors.length <= 1) return unitPrice
-    return computeMultiFlavorPrice(pizzaById, selectedFlavorIds, selectedSizeId)
-  }, [selectedFlavors.length, selectedFlavorIds, pizzaById, selectedSizeId, unitPrice])
+    return computeMultiFlavorPriceForMode(
+      pizzaById,
+      selectedFlavorIds,
+      selectedSizeId,
+      forDelivery,
+    )
+  }, [selectedFlavors.length, selectedFlavorIds, pizzaById, selectedSizeId, unitPrice, forDelivery])
 
   const handleSizeChange = (sizeId) => {
     setSelectedSizeId(sizeId)
@@ -1033,7 +1096,7 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
   )
 }
 
-function HomePage({ menuItems, tables, categories }) {
+function HomePage({ menuItems, tables, categories, deliveryFee = 0 }) {
   const location = useLocation()
   const { categoryId, subcategoryId } = useParams()
   const splashPhase = useContext(CatalogSplashContext)
@@ -1051,7 +1114,9 @@ function HomePage({ menuItems, tables, categories }) {
   } = useContext(CatalogReceiptContext)
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
   const [orderMessage, setOrderMessage] = useState('')
+  const [orderToast, setOrderToast] = useState('')
   const [orderOpen, setOrderOpen] = useState(false)
+  const lastOrderBannerRef = useRef(null)
   const searchParams = useMemo(
     () => new URLSearchParams(location.search),
     [location.search],
@@ -1118,10 +1183,17 @@ function HomePage({ menuItems, tables, categories }) {
     )
   }
 
-  const total = useMemo(
-    () => cart.reduce((sum, item) => sum + item.price * item.qty, 0),
-    [cart],
+  const cartTotals = useMemo(
+    () =>
+      calcCartTotals(cart, {
+        isDelivery,
+        deliveryFee,
+        deliveryCep: '', // deliveryInfo.cep quando ativar deliveryCep.js
+        deliveryAddress: deliveryInfo.deliveryAddress,
+      }),
+    [cart, isDelivery, deliveryFee, deliveryInfo.deliveryAddress],
   )
+  const { subtotal, deliveryFee: cartDeliveryFee, total } = cartTotals
   const cartCount = useMemo(
     () => cart.reduce((sum, item) => sum + item.qty, 0),
     [cart],
@@ -1130,6 +1202,12 @@ function HomePage({ menuItems, tables, categories }) {
   useEffect(() => {
     setOrderOpen(false)
   }, [location.pathname, location.search])
+
+  useEffect(() => {
+    if (!orderToast) return undefined
+    const timer = window.setTimeout(() => setOrderToast(''), 8000)
+    return () => window.clearTimeout(timer)
+  }, [orderToast])
 
   useEffect(() => {
     if (!orderOpen) return undefined
@@ -1204,20 +1282,23 @@ function HomePage({ menuItems, tables, categories }) {
         qty: item.qty,
         price: item.price,
       })),
+      itemsSubtotal: subtotal,
+      deliveryFee: cartDeliveryFee,
       totalAmount: total,
     }
-    const fallbackOrder = {
-      id: Date.now(),
-      createdAt: new Date().toISOString(),
-      mesa: orderPayload.mesa,
-      orderType: orderPayload.orderType,
-      customerName: orderPayload.customerName,
-      customerPhone: orderPayload.customerPhone,
-      deliveryAddress: orderPayload.deliveryAddress,
-      deliveryReference: orderPayload.deliveryReference,
-      observation: orderPayload.observation,
-      items: orderPayload.items,
-      total,
+    const showOrderSuccess = (orderToSave) => {
+      const successText = 'Pedido feito com sucesso!'
+      setReceiptOrder(orderToSave)
+      setOrderSuccessMessage(successText)
+      setOrderToast(successText)
+      setCart([])
+      setObservation('')
+      setOrderOpen(false)
+      setOrderMessage('')
+      setDeliveryFieldError('')
+      window.requestAnimationFrame(() => {
+        lastOrderBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     }
 
     try {
@@ -1230,7 +1311,16 @@ function HomePage({ menuItems, tables, categories }) {
       })
 
       if (!response.ok) {
-        throw new Error('Falha ao enviar pedido')
+        let apiMessage = 'Não foi possível enviar o pedido. Tente de novo.'
+        try {
+          const errBody = await response.json()
+          apiMessage = errBody.message || errBody.detail || apiMessage
+        } catch {
+          /* resposta não-JSON */
+        }
+        setOrderMessage(apiMessage)
+        if (isDelivery) setDeliveryFieldError(apiMessage)
+        return
       }
 
       const createdOrder = await response.json()
@@ -1245,22 +1335,14 @@ function HomePage({ menuItems, tables, categories }) {
         deliveryReference: createdOrder.deliveryReference || '',
         observation: createdOrder.observation || '',
         items: orderPayload.items,
+        itemsSubtotal: Number(createdOrder.itemsSubtotal ?? subtotal),
+        deliveryFee: Number(createdOrder.deliveryFee ?? cartDeliveryFee),
         total: Number(createdOrder.totalAmount || total),
       }
 
-      setReceiptOrder(orderToSave)
-      setOrderSuccessMessage('Pedido feito com sucesso!')
-      setCart([])
-      setObservation('')
-      setOrderOpen(false)
-      setOrderMessage('')
+      showOrderSuccess(orderToSave)
     } catch {
-      setReceiptOrder(fallbackOrder)
-      setOrderSuccessMessage('Pedido feito com sucesso!')
-      setCart([])
-      setObservation('')
-      setOrderOpen(false)
-      setOrderMessage('')
+      setOrderMessage('Sem conexão com o servidor. Verifique a internet e tente de novo.')
     } finally {
       setIsSubmittingOrder(false)
     }
@@ -1294,6 +1376,8 @@ function HomePage({ menuItems, tables, categories }) {
     onDeliveryFieldChange: handleDeliveryFieldChange,
     deliveryFieldErrors,
     deliveryFieldError,
+    subtotal,
+    deliveryFee: cartDeliveryFee,
     total,
     observation,
     setObservation,
@@ -1362,8 +1446,18 @@ function HomePage({ menuItems, tables, categories }) {
         <div className="menu-watermark" aria-hidden="true">
           <img src={LOGO_URL} alt="" />
         </div>
+        {orderToast && (
+          <div className="order-success-toast" role="status" aria-live="polite">
+            {orderToast}
+          </div>
+        )}
         {receiptOrder && (
-          <div className="last-order-banner" role="status" aria-live="polite">
+          <div
+            ref={lastOrderBannerRef}
+            className="last-order-banner"
+            role="status"
+            aria-live="polite"
+          >
             <p className="order-success-heading">{orderSuccessMessage}</p>
             <span>
               Pedido #{receiptOrder.id} · Total R$ {receiptOrder.total.toFixed(2)} ·{' '}
@@ -1443,6 +1537,7 @@ function HomePage({ menuItems, tables, categories }) {
               menuItem={menuItem}
               onAddToCart={addToCart}
               pizzaItems={isPizzaCategory(menuItem.category) ? pizzaMenuItems : undefined}
+              forDelivery={isDelivery}
             />
           ))}
           {filteredMenu.length === 0 && (
@@ -1679,12 +1774,147 @@ function ReportsPage() {
   )
 }
 
+function OrderDestinationEditor({ order, onSaved, onCancel }) {
+  const initialDelivery = isDeliveryOrder(order.tableNumber, order.orderType)
+  const [orderType, setOrderType] = useState(initialDelivery ? 'delivery' : 'table')
+  const [tableNumber, setTableNumber] = useState(
+    order.tableNumber ? String(order.tableNumber) : '',
+  )
+  const [customerName, setCustomerName] = useState(order.customerName || '')
+  const [customerPhone, setCustomerPhone] = useState(
+    order.customerPhone ? formatPhoneDisplay(order.customerPhone) : '',
+  )
+  const [deliveryAddress, setDeliveryAddress] = useState(order.deliveryAddress || '')
+  const [deliveryReference, setDeliveryReference] = useState(order.deliveryReference || '')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  const handleSave = async () => {
+    setSaving(true)
+    setFormError('')
+    try {
+      const payload = {
+        orderType,
+        mesa: orderType === 'table' ? Number(tableNumber) : null,
+        customerName: orderType === 'delivery' ? customerName : '',
+        customerPhone: orderType === 'delivery' ? customerPhone : '',
+        deliveryAddress: orderType === 'delivery' ? deliveryAddress : '',
+        deliveryReference: orderType === 'delivery' ? deliveryReference : '',
+      }
+      if (orderType === 'table' && (!payload.mesa || payload.mesa <= 0)) {
+        setFormError('Informe o número da mesa.')
+        return
+      }
+      if (orderType === 'delivery') {
+        const check = validateDeliveryInfo({
+          customerName,
+          customerPhone,
+          deliveryAddress,
+          deliveryReference,
+        })
+        if (!check.ok) {
+          setFormError(check.message)
+          return
+        }
+        const data = check.data
+        payload.customerName = data.customerName
+        payload.customerPhone = data.customerPhone
+        payload.deliveryAddress = data.deliveryAddress
+        payload.deliveryReference = data.deliveryReference
+      }
+      const updated = await patchOrderDetails(API_BASE_URL, order.id, payload)
+      onSaved(updated)
+    } catch (saveError) {
+      setFormError(formatApiError(saveError, 'Não foi possível salvar.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="order-destination-editor">
+      <p className="order-destination-editor-title">Tipo do pedido</p>
+      <div className="order-destination-type">
+        <label>
+          <input
+            type="radio"
+            name={`order-type-${order.id}`}
+            checked={orderType === 'table'}
+            onChange={() => setOrderType('table')}
+          />
+          Mesa
+        </label>
+        <label>
+          <input
+            type="radio"
+            name={`order-type-${order.id}`}
+            checked={orderType === 'delivery'}
+            onChange={() => setOrderType('delivery')}
+          />
+          Delivery
+        </label>
+      </div>
+      {orderType === 'table' ? (
+        <label className="order-destination-field">
+          Número da mesa
+          <input
+            type="number"
+            min="1"
+            value={tableNumber}
+            onChange={(event) => setTableNumber(event.target.value)}
+          />
+        </label>
+      ) : (
+        <div className="order-destination-delivery-fields">
+          <label className="order-destination-field">
+            Nome
+            <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+          </label>
+          <label className="order-destination-field">
+            WhatsApp
+            <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+          </label>
+          <label className="order-destination-field">
+            Endereço
+            <input
+              value={deliveryAddress}
+              onChange={(e) => setDeliveryAddress(e.target.value)}
+            />
+          </label>
+          <label className="order-destination-field">
+            Referência
+            <input
+              value={deliveryReference}
+              onChange={(e) => setDeliveryReference(e.target.value)}
+            />
+          </label>
+        </div>
+      )}
+      {formError && <p className="orders-page-error">{formError}</p>}
+      <div className="order-destination-actions">
+        <button
+          type="button"
+          className="admin-btn admin-btn-primary"
+          disabled={saving}
+          onClick={handleSave}
+        >
+          {saving ? 'Salvando...' : 'Salvar tipo do pedido'}
+        </button>
+        <button type="button" className="admin-btn admin-btn-ghost" onClick={onCancel}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function OrdersPage() {
   const [orders, setOrders] = useState([])
   const [filter, setFilter] = useState('pending')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [actionId, setActionId] = useState(null)
+  const [editingOrderId, setEditingOrderId] = useState(null)
   const [cancelModal, setCancelModal] = useState(null)
   const [successModal, setSuccessModal] = useState(null)
 
@@ -1902,7 +2132,25 @@ function OrdersPage() {
                   </span>
                 </div>
 
-                <p className="orders-card-total">{formatOrderMoney(order.totalAmount)}</p>
+                <p className="orders-card-total">
+                  {formatOrderMoney(order.totalAmount)}
+                  {Number(order.deliveryFee) > 0 && (
+                    <span className="orders-card-fee-note">
+                      {' '}
+                      (inclui taxa {formatOrderMoney(order.deliveryFee)})
+                    </span>
+                  )}
+                </p>
+                {editingOrderId === order.id ? (
+                  <OrderDestinationEditor
+                    order={order}
+                    onSaved={(updated) => {
+                      updateOrderInList(order.id, updated)
+                      setEditingOrderId(null)
+                    }}
+                    onCancel={() => setEditingOrderId(null)}
+                  />
+                ) : null}
                 {isDeliveryOrder(order.tableNumber, order.orderType) ? (
                   <div className="orders-card-delivery">
                     <p>
@@ -1928,6 +2176,18 @@ function OrdersPage() {
                 <div className="orders-card-actions">
                   {!cancelled ? (
                     <>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-outline"
+                        disabled={busy}
+                        onClick={() =>
+                          setEditingOrderId((current) =>
+                            current === order.id ? null : order.id,
+                          )
+                        }
+                      >
+                        {editingOrderId === order.id ? 'Fechar edição' : 'Mesa / Delivery'}
+                      </button>
                       <button
                         type="button"
                         className="admin-btn admin-btn-primary"
@@ -2022,7 +2282,9 @@ const emptyItemForm = {
   name: '',
   description: '',
   price: '',
+  deliveryPrice: '',
   sizePrices: emptySizePrices(),
+  sizeDeliveryPrices: emptySizePrices(),
   image: '',
 }
 
@@ -2034,7 +2296,9 @@ function buildItemFormFromMenuItem(item) {
     name: item.name,
     description: item.description,
     price: hasPizzaSizes ? '' : formatPriceForInput(item.price),
+    deliveryPrice: hasPizzaSizes ? '' : formatPriceForInput(item.deliveryPrice),
     sizePrices: buildSizePricesFromItem(item),
+    sizeDeliveryPrices: buildSizePricesFromItem(item, { delivery: true }),
     image: item.image || '',
   }
 }
@@ -2046,6 +2310,8 @@ function AdminItemFormFields({
   onChange,
   onPriceChange,
   onSizePriceChange,
+  onSizeDeliveryPriceChange,
+  onDeliveryPriceChange,
   onImageUpload,
 }) {
   const showPizzaSizes = isPizzaCategory(form.category)
@@ -2113,26 +2379,71 @@ function AdminItemFormFields({
               </label>
             ))}
           </div>
+          <div className="pizza-sizes-admin pizza-sizes-admin--delivery field-full">
+            <span className="field-label">Preços delivery por tamanho (opcional)</span>
+            <small className="field-hint field-hint-block">
+              Vazio = mesmo preço do salão. Preencha só onde o delivery for diferente.
+            </small>
+            <div className="pizza-sizes-admin-grid">
+              {PIZZA_SIZE_TEMPLATES.map((template) => (
+                <label key={`delivery-${template.id}`} className="pizza-size-admin-field">
+                  <span className="pizza-size-admin-label">{template.label} delivery</span>
+                  <div className="price-input-wrap">
+                    <span className="price-prefix" aria-hidden="true">
+                      R$
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={form.sizeDeliveryPrices?.[template.id] || ''}
+                      onChange={(event) =>
+                        onSizeDeliveryPriceChange(template.id, event.target.value)
+                      }
+                      placeholder="Igual salão"
+                    />
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
-        <label className="price-field">
-          <span className="field-label">Valor do item</span>
-          <div className="price-input-wrap">
-            <span className="price-prefix" aria-hidden="true">
-              R$
-            </span>
-            <input
-              name="price"
-              type="text"
-              inputMode="decimal"
-              value={form.price}
-              onChange={onPriceChange}
-              placeholder="0,00"
-              aria-label="Valor em reais"
-            />
-          </div>
-          <small className="field-hint">Digite só números; o valor formata sozinho.</small>
-        </label>
+        <>
+          <label className="price-field">
+            <span className="field-label">Valor no salão / mesa</span>
+            <div className="price-input-wrap">
+              <span className="price-prefix" aria-hidden="true">
+                R$
+              </span>
+              <input
+                name="price"
+                type="text"
+                inputMode="decimal"
+                value={form.price}
+                onChange={onPriceChange}
+                placeholder="0,00"
+                aria-label="Valor em reais"
+              />
+            </div>
+          </label>
+          <label className="price-field">
+            <span className="field-label">Valor no delivery (opcional)</span>
+            <div className="price-input-wrap">
+              <span className="price-prefix" aria-hidden="true">
+                R$
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={form.deliveryPrice}
+                onChange={onDeliveryPriceChange}
+                placeholder="Igual salão"
+                aria-label="Valor delivery"
+              />
+            </div>
+            <small className="field-hint">Vazio = mesmo preço do salão.</small>
+          </label>
+        </>
       )}
     </>
   )
@@ -2149,6 +2460,8 @@ function AdminEditItemModal({
   onChange,
   onPriceChange,
   onSizePriceChange,
+  onSizeDeliveryPriceChange,
+  onDeliveryPriceChange,
   onImageUpload,
 }) {
   useEffect(() => {
@@ -2199,6 +2512,8 @@ function AdminEditItemModal({
             onChange={onChange}
             onPriceChange={onPriceChange}
             onSizePriceChange={onSizePriceChange}
+            onSizeDeliveryPriceChange={onSizeDeliveryPriceChange}
+            onDeliveryPriceChange={onDeliveryPriceChange}
             onImageUpload={onImageUpload}
           />
           {form.image && (
@@ -2636,8 +2951,82 @@ const ADMIN_SECTIONS = [
   { id: 'novo', label: 'Novo item', hint: 'Cadastrar' },
   { id: 'itens', label: 'Itens', hint: 'Ver e editar' },
   { id: 'categorias', label: 'Categorias', hint: 'Grupos' },
+  { id: 'entrega', label: 'Delivery', hint: 'Taxa' },
   { id: 'qrcodes', label: 'QR Codes', hint: 'Mesas' },
 ]
+
+function AdminDeliverySettings({ deliveryFee, saveDeliverySettings }) {
+  const [feeInput, setFeeInput] = useState(formatPriceForInput(deliveryFee))
+  const [saving, setSaving] = useState(false)
+  const [modal, setModal] = useState(null)
+
+  useEffect(() => {
+    setFeeInput(formatPriceForInput(deliveryFee))
+  }, [deliveryFee])
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    const parsed = parsePriceInput(feeInput)
+    if (Number.isNaN(parsed) || parsed < 0) {
+      setModal({
+        variant: 'error',
+        title: 'Valor inválido',
+        description: 'Informe a taxa de entrega (use 0,00 se não cobrar taxa fixa).',
+      })
+      return
+    }
+
+    setSaving(true)
+    try {
+      await saveDeliverySettings(parsed)
+      setModal({
+        variant: 'success',
+        title: 'Salvo',
+        description: `Taxa de entrega: R$ ${parsed.toFixed(2).replace('.', ',')}`,
+      })
+    } catch (error) {
+      setModal({
+        variant: 'error',
+        title: 'Erro',
+        description: formatApiError(error, 'Não foi possível salvar.'),
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="admin-delivery-settings">
+      <h3>Configurações de delivery</h3>
+      <p>
+        Defina a <strong>taxa de entrega fixa</strong> somada ao carrinho no cardápio delivery.
+        Nos itens, use preços delivery opcionais (aba Novo item / Editar) quando o valor for
+        diferente do salão.
+      </p>
+      <form onSubmit={handleSubmit} className="admin-delivery-settings-form">
+        <label className="price-field">
+          <span className="field-label">Taxa de entrega (por pedido)</span>
+          <div className="price-input-wrap">
+            <span className="price-prefix" aria-hidden="true">
+              R$
+            </span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={feeInput}
+              onChange={(event) => setFeeInput(applyPriceMask(event.target.value))}
+              placeholder="0,00"
+            />
+          </div>
+        </label>
+        <button type="submit" className="admin-btn admin-btn-primary" disabled={saving}>
+          {saving ? 'Salvando...' : 'Salvar taxa'}
+        </button>
+      </form>
+      <AdminFeedbackModal modal={modal} onClose={() => setModal(null)} />
+    </section>
+  )
+}
 
 function AdminItemPricing({ item }) {
   if (itemHasSizes(item)) {
@@ -2928,6 +3317,8 @@ function AdminPage({
   menuSyncMessage,
   tables,
   saveTables,
+  deliveryFee,
+  saveDeliverySettings,
 }) {
   const [newItemForm, setNewItemForm] = useState(emptyItemForm)
   const [editForm, setEditForm] = useState(emptyItemForm)
@@ -2959,7 +3350,8 @@ function AdminPage({
           category: value,
           subcategory: '',
           price: isPizzaCategory(value) ? '' : current.price,
-          sizePrices: isPizzaCategory(value) ? emptySizePrices() : emptySizePrices(),
+          sizePrices: emptySizePrices(),
+          sizeDeliveryPrices: emptySizePrices(),
         }
       }
       return { ...current, [name]: value }
@@ -2972,6 +3364,19 @@ function AdminPage({
       ...current,
       sizePrices: { ...current.sizePrices, [sizeId]: masked },
     }))
+  }
+
+  const makeSizeDeliveryPriceChangeHandler = (setFormState) => (sizeId, value) => {
+    const masked = applyPriceMask(value)
+    setFormState((current) => ({
+      ...current,
+      sizeDeliveryPrices: { ...current.sizeDeliveryPrices, [sizeId]: masked },
+    }))
+  }
+
+  const makeDeliveryPriceChangeHandler = (setFormState) => (event) => {
+    const value = applyPriceMask(event.target.value)
+    setFormState((current) => ({ ...current, deliveryPrice: value }))
   }
 
   const makeImageUploadHandler = (setFormState) => (event) => {
@@ -2999,12 +3404,17 @@ function AdminPage({
       category: categories[0]?.id || 'pizzas',
       subcategory: '',
       sizePrices: emptySizePrices(),
+      sizeDeliveryPrices: emptySizePrices(),
     })
   }
 
   const closeEditModal = () => {
     setEditingId(null)
-    setEditForm({ ...emptyItemForm, sizePrices: emptySizePrices() })
+    setEditForm({
+      ...emptyItemForm,
+      sizePrices: emptySizePrices(),
+      sizeDeliveryPrices: emptySizePrices(),
+    })
   }
 
   const startEdit = (item) => {
@@ -3047,7 +3457,12 @@ function AdminPage({
     }
 
     if (isPizzaCategory(form.category)) {
-      const sizes = buildSizesFromForm(form.category, 0, form.sizePrices)
+      const sizes = buildSizesFromForm(
+        form.category,
+        0,
+        form.sizePrices,
+        form.sizeDeliveryPrices,
+      )
       const invalid = sizes.find((size) => !size.price || size.price <= 0)
       if (invalid) {
         return {
@@ -3079,10 +3494,19 @@ function AdminPage({
       }
     }
 
+    const parsedDelivery = parsePriceInput(form.deliveryPrice)
+    const deliveryPrice =
+      form.deliveryPrice.trim() === '' || Number.isNaN(parsedDelivery)
+        ? null
+        : parsedDelivery <= 0
+          ? null
+          : parsedDelivery
+
     return {
       payload: {
         ...basePayload,
         price: parsedPrice,
+        deliveryPrice,
         sizes: [],
       },
     }
@@ -3182,7 +3606,7 @@ function AdminPage({
     <section className="admin">
       <header className="admin-page-header">
         <h2>Painel Admin</h2>
-        <p>Use as abas: novo item, itens, categorias ou QR Codes.</p>
+        <p>Use as abas: novo item, itens, categorias, delivery ou QR Codes.</p>
         {menuSyncMessage && (
           <p
             className={`menu-sync-message${
@@ -3242,6 +3666,8 @@ function AdminPage({
                 onChange={makeFormChangeHandler(setNewItemForm)}
                 onPriceChange={makePriceChangeHandler(setNewItemForm)}
                 onSizePriceChange={makeSizePriceChangeHandler(setNewItemForm)}
+                onSizeDeliveryPriceChange={makeSizeDeliveryPriceChangeHandler(setNewItemForm)}
+                onDeliveryPriceChange={makeDeliveryPriceChangeHandler(setNewItemForm)}
                 onImageUpload={makeImageUploadHandler(setNewItemForm)}
               />
               <div className="admin-form-actions">
@@ -3276,6 +3702,15 @@ function AdminPage({
           </div>
         )}
 
+        {adminTab === 'entrega' && (
+          <div role="tabpanel" className="admin-tab-panel">
+            <AdminDeliverySettings
+              deliveryFee={deliveryFee}
+              saveDeliverySettings={saveDeliverySettings}
+            />
+          </div>
+        )}
+
         {adminTab === 'qrcodes' && (
           <div role="tabpanel" className="admin-tab-panel">
             <AdminTablesSection
@@ -3300,6 +3735,8 @@ function AdminPage({
         onChange={makeFormChangeHandler(setEditForm)}
         onPriceChange={makePriceChangeHandler(setEditForm)}
         onSizePriceChange={makeSizePriceChangeHandler(setEditForm)}
+        onSizeDeliveryPriceChange={makeSizeDeliveryPriceChangeHandler(setEditForm)}
+        onDeliveryPriceChange={makeDeliveryPriceChangeHandler(setEditForm)}
         onImageUpload={makeImageUploadHandler(setEditForm)}
       />
 

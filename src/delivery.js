@@ -1,10 +1,12 @@
 export const DELIVERY_INFO_STORAGE_KEY = 'pizza-ralfs-delivery-info'
 
+// Campo opcional futuro: cep — ver src/deliveryCep.js (integração comentada)
 const EMPTY_DELIVERY = {
   customerName: '',
   customerPhone: '',
   deliveryAddress: '',
   deliveryReference: '',
+  // cep: '',
 }
 
 export function isDeliveryOrder(tableNumber, orderType) {

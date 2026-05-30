@@ -4,6 +4,7 @@ import express from 'express'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { loadCategoriesFromDb, saveCategoriesToDb } from './categories.js'
+import { loadCatalogSettings, saveCatalogSettings } from './catalogSettings.js'
 import { query } from './db.js'
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
 
@@ -27,6 +28,24 @@ app.get('/categories', async (_req, res) => {
   }
 })
 
+app.get('/settings', async (_req, res) => {
+  try {
+    const settings = await loadCatalogSettings(query)
+    return res.json(settings)
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao carregar configuracoes', detail: error.message })
+  }
+})
+
+app.put('/settings', async (req, res) => {
+  try {
+    const saved = await saveCatalogSettings(query, req.body)
+    return res.json(saved)
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao salvar configuracoes', detail: error.message })
+  }
+})
+
 app.put('/categories', async (req, res) => {
   const { categories } = req.body
   if (!Array.isArray(categories)) {
@@ -44,7 +63,7 @@ app.put('/categories', async (req, res) => {
 app.get('/menu-items', async (_req, res) => {
   try {
     const result = await query(
-      `SELECT id, category, subcategory, name, description, price, sizes, image_base64 AS image
+      `SELECT id, category, subcategory, name, description, price, delivery_price, sizes, image_base64 AS image
        FROM menu_items
        ORDER BY id DESC`,
     )
@@ -64,15 +83,16 @@ app.post('/menu-items', async (req, res) => {
 
   try {
     const result = await query(
-      `INSERT INTO menu_items (category, subcategory, name, description, price, sizes, image_base64)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, category, subcategory, name, description, price, sizes, image_base64 AS image`,
+      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, image_base64)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, category, subcategory, name, description, price, delivery_price, sizes, image_base64 AS image`,
       [
         payload.category,
         payload.subcategory,
         payload.name,
         payload.description,
         payload.price,
+        payload.deliveryPrice,
         JSON.stringify(payload.sizes),
         payload.image,
       ],
@@ -105,10 +125,11 @@ app.put('/menu-items/:id', async (req, res) => {
            name = $4,
            description = $5,
            price = $6,
-           sizes = $7,
-           image_base64 = $8
+           delivery_price = $7,
+           sizes = $8,
+           image_base64 = $9
        WHERE id = $1
-       RETURNING id, category, subcategory, name, description, price, sizes, image_base64 AS image`,
+       RETURNING id, category, subcategory, name, description, price, delivery_price, sizes, image_base64 AS image`,
       [
         itemId,
         payload.category,
@@ -116,6 +137,7 @@ app.put('/menu-items/:id', async (req, res) => {
         payload.name,
         payload.description,
         payload.price,
+        payload.deliveryPrice,
         JSON.stringify(payload.sizes),
         payload.image,
       ],
@@ -174,15 +196,45 @@ function normalizePhoneDigits(value) {
 const ORDER_RETURNING = `id, table_number AS "tableNumber", order_type AS "orderType",
   customer_name AS "customerName", customer_phone AS "customerPhone",
   delivery_address AS "deliveryAddress", delivery_reference AS "deliveryReference",
+  items_subtotal AS "itemsSubtotal", delivery_fee AS "deliveryFee",
   observation, total_amount AS "totalAmount", status, created_at AS "createdAt"`
 
+function resolveOrderType(tableNumber, requestedType) {
+  if (requestedType === 'delivery') return 'delivery'
+  if (requestedType === 'table' && tableNumber) return 'table'
+  return tableNumber ? 'table' : 'delivery'
+}
+
+function validateDeliveryFields({ customerName, customerPhone, deliveryAddress, deliveryReference }) {
+  if (!customerName) {
+    return { ok: false, message: 'Informe o nome para delivery' }
+  }
+  if (customerPhone.length < 12) {
+    return { ok: false, message: 'Informe um WhatsApp valido com DDD' }
+  }
+  if (!deliveryAddress) {
+    return { ok: false, message: 'Informe o endereco de entrega' }
+  }
+  if (!deliveryReference) {
+    return { ok: false, message: 'Informe o ponto de referencia' }
+  }
+  return { ok: true }
+}
+
 app.post('/orders', async (req, res) => {
-  const { observation, items, totalAmount } = req.body
+  const { observation, items } = req.body
   const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
-  const orderType = tableNumber ? 'table' : 'delivery'
+  const orderType = resolveOrderType(tableNumber, req.body.orderType)
+  const itemsSubtotal = Number(req.body.itemsSubtotal ?? 0)
+  const deliveryFee = orderType === 'delivery' ? Math.max(0, Number(req.body.deliveryFee ?? 0)) : 0
+  const totalAmount = Number(req.body.totalAmount ?? itemsSubtotal + deliveryFee)
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: 'Pedido precisa ter itens' })
+  }
+
+  if (orderType === 'table' && !tableNumber) {
+    return res.status(400).json({ message: 'Informe o numero da mesa' })
   }
 
   let customerName = ''
@@ -196,17 +248,14 @@ app.post('/orders', async (req, res) => {
     deliveryAddress = String(req.body.deliveryAddress ?? '').trim()
     deliveryReference = String(req.body.deliveryReference ?? '').trim()
 
-    if (!customerName) {
-      return res.status(400).json({ message: 'Informe o nome para delivery' })
-    }
-    if (customerPhone.length < 12) {
-      return res.status(400).json({ message: 'Informe um WhatsApp valido com DDD' })
-    }
-    if (!deliveryAddress) {
-      return res.status(400).json({ message: 'Informe o endereco de entrega' })
-    }
-    if (!deliveryReference) {
-      return res.status(400).json({ message: 'Informe o ponto de referencia' })
+    const check = validateDeliveryFields({
+      customerName,
+      customerPhone,
+      deliveryAddress,
+      deliveryReference,
+    })
+    if (!check.ok) {
+      return res.status(400).json({ message: check.message })
     }
   }
 
@@ -214,19 +263,22 @@ app.post('/orders', async (req, res) => {
     const orderResult = await query(
       `INSERT INTO orders (
          table_number, order_type, customer_name, customer_phone,
-         delivery_address, delivery_reference, observation, total_amount
+         delivery_address, delivery_reference, items_subtotal, delivery_fee,
+         observation, total_amount
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${ORDER_RETURNING}`,
       [
-        tableNumber,
+        orderType === 'table' ? tableNumber : null,
         orderType,
         customerName,
         customerPhone,
         deliveryAddress,
         deliveryReference,
+        itemsSubtotal,
+        deliveryFee,
         observation ?? '',
-        Number(totalAmount ?? 0),
+        totalAmount,
       ],
     )
 
@@ -358,6 +410,72 @@ app.get('/orders/:id/items', async (req, res) => {
   }
 })
 
+app.patch('/orders/:id', async (req, res) => {
+  const orderId = Number(req.params.id)
+  if (!Number.isInteger(orderId)) {
+    return res.status(400).json({ message: 'ID invalido' })
+  }
+
+  const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
+  const orderType = resolveOrderType(tableNumber, req.body.orderType)
+
+  let customerName = String(req.body.customerName ?? '').trim()
+  let customerPhone = normalizePhoneDigits(req.body.customerPhone)
+  let deliveryAddress = String(req.body.deliveryAddress ?? '').trim()
+  let deliveryReference = String(req.body.deliveryReference ?? '').trim()
+
+  if (orderType === 'delivery') {
+    const check = validateDeliveryFields({
+      customerName,
+      customerPhone,
+      deliveryAddress,
+      deliveryReference,
+    })
+    if (!check.ok) {
+      return res.status(400).json({ message: check.message })
+    }
+  } else {
+    if (!tableNumber) {
+      return res.status(400).json({ message: 'Informe o numero da mesa' })
+    }
+    customerName = ''
+    customerPhone = ''
+    deliveryAddress = ''
+    deliveryReference = ''
+  }
+
+  try {
+    const result = await query(
+      `UPDATE orders
+       SET table_number = $2,
+           order_type = $3,
+           customer_name = $4,
+           customer_phone = $5,
+           delivery_address = $6,
+           delivery_reference = $7
+       WHERE id = $1
+       RETURNING ${ORDER_RETURNING}`,
+      [
+        orderId,
+        orderType === 'table' ? tableNumber : null,
+        orderType,
+        customerName,
+        customerPhone,
+        deliveryAddress,
+        deliveryReference,
+      ],
+    )
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Pedido nao encontrado' })
+    }
+
+    return res.json(result.rows[0])
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao atualizar pedido', detail: error.message })
+  }
+})
+
 app.patch('/orders/:id/status', async (req, res) => {
   const orderId = Number(req.params.id)
   const { status } = req.body
@@ -403,7 +521,7 @@ if (process.env.NODE_ENV === 'production') {
       },
     }),
   )
-  app.get(/^(?!\/(health|categories|menu-items|orders)(\/|$)).*/, (_req, res) => {
+  app.get(/^(?!\/(health|categories|menu-items|orders|settings)(\/|$)).*/, (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
     res.sendFile(path.join(distPath, 'index.html'))
   })

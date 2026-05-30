@@ -242,12 +242,17 @@ export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
   return PIZZA_SIZE_TEMPLATES.map((template) => {
     const existing = byId.get(template.id) || {}
     const price = Number(existing.price ?? fallback)
-    return {
+    const deliveryPrice = Number(existing.deliveryPrice)
+    const size = {
       id: template.id,
       label: template.label,
       pieces: template.pieces,
       price: Number.isFinite(price) && price >= 0 ? price : 0,
     }
+    if (Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
+      size.deliveryPrice = deliveryPrice
+    }
+    return size
   })
 }
 
@@ -428,27 +433,33 @@ export function emptySizePrices() {
   return { broto: '', media: '', grande: '' }
 }
 
-export function buildSizePricesFromItem(item) {
+export function buildSizePricesFromItem(item, { delivery = false } = {}) {
   const prices = emptySizePrices()
   if (!itemHasSizes(item)) return prices
 
   for (const size of item.sizes) {
-    prices[size.id] = size.price > 0 ? formatPriceForInput(size.price) : ''
+    const value = delivery ? size.deliveryPrice : size.price
+    prices[size.id] = value > 0 ? formatPriceForInput(value) : ''
   }
   return prices
 }
 
-export function buildSizesFromForm(category, price, sizePrices) {
+export function buildSizesFromForm(category, price, sizePrices, sizeDeliveryPrices = null) {
   if (!isPizzaCategory(category)) return []
 
   return PIZZA_SIZE_TEMPLATES.map((template) => {
     const parsed = parsePriceInput(sizePrices?.[template.id] || '')
-    return {
+    const parsedDelivery = parsePriceInput(sizeDeliveryPrices?.[template.id] || '')
+    const size = {
       id: template.id,
       label: template.label,
       pieces: template.pieces,
       price: Number.isFinite(parsed) && parsed > 0 ? parsed : 0,
     }
+    if (Number.isFinite(parsedDelivery) && parsedDelivery > 0) {
+      size.deliveryPrice = parsedDelivery
+    }
+    return size
   })
 }
 
