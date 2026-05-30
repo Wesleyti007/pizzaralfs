@@ -1,6 +1,11 @@
 CREATE TABLE IF NOT EXISTS orders (
   id BIGSERIAL PRIMARY KEY,
   table_number INTEGER,
+  order_type TEXT NOT NULL DEFAULT 'table',
+  customer_name TEXT NOT NULL DEFAULT '',
+  customer_phone TEXT NOT NULL DEFAULT '',
+  delivery_address TEXT NOT NULL DEFAULT '',
+  delivery_reference TEXT NOT NULL DEFAULT '',
   observation TEXT DEFAULT '',
   total_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'pending',

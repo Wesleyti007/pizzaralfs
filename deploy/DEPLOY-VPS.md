@@ -172,8 +172,10 @@ ufw enable
 
 ## Problemas comuns
 
-**Dominio nao abre HTTPS**  
-- DNS ainda nao propagou — espere e teste de novo.  
+**Dominio nao abre HTTPS / ERR_SSL_PROTOCOL_ERROR**  
+- O DNS publico ainda nao tem registro A no Registro.br (salve de novo e espere).  
+- Enquanto isso o Caddy usa `tls internal` (certificado temporario): o navegador avisa "nao seguro" — clique em Avancado e Continuar.  
+- Quando `dig pizzaralfs.com.br +short` mostrar o IP do VPS, remova `tls internal` do `Caddyfile` e rode `docker compose up -d --build`.  
 - `DOMAIN` no `.env` sem `www` e sem `https`.
 
 **Cardapio vazio**  

@@ -13,22 +13,53 @@ import {
   useParams,
 } from 'react-router-dom'
 import './App.css'
-import logoRalfs from './assets/logo-ralfs.png'
+import {
+  formatOrderDateTime,
+  formatOrderMoney,
+  isOrderCancelled,
+  isOrderPrinted,
+  ORDER_STATUS,
+  orderStatusBadgeClass,
+  orderStatusLabel,
+  dateInputDaysAgo,
+  fetchOrdersReport,
+  patchOrderStatus,
+  todayDateInputValue,
+} from './orders.js'
+import { printOrderDocument } from './orderPrint.js'
+import { downloadOrdersReportExcel } from './reportExport.js'
+import { downloadOrderReceiptImage } from './orderReceiptImage.js'
+import { PizzaSlicePicker } from './PizzaSlicePicker.jsx'
+import {
+  formatPhoneDisplay,
+  getDeliveryFieldErrors,
+  isDeliveryOrder,
+  loadDeliveryInfoFromSession,
+  normalizePhoneDigits,
+  saveDeliveryInfoToSession,
+  validateDeliveryInfo,
+} from './delivery.js'
 import {
   DEFAULT_CATEGORIES,
+  catalogPathWithMesa,
   filterMenuByCatalog,
   getCategoryLabel,
+  persistTableNumber,
+  resolveActiveTableNumber,
   getItemCategoryLabel,
   getSubcategoryLabel,
   applyPriceMask,
-  buildHalfAndHalfCartName,
+  buildMultiFlavorCartName,
   buildSizePricesFromItem,
   buildSizesFromForm,
-  computeHalfAndHalfPrice,
+  computeMultiFlavorPrice,
   emptySizePrices,
   formatPriceForInput,
   formatPriceRangeLabel,
-  halfAndHalfPairKey,
+  getMaxFlavorsForSize,
+  getPiecesForSize,
+  multiFlavorCartKey,
+  normalizeFlavorIdList,
   parsePriceInput,
   groupMenuItemsForAdmin,
   isPizzaCategory,
@@ -47,12 +78,14 @@ const CATEGORIES_STORAGE_KEY = 'pizza-ralfs-categories'
 const TABLES_STORAGE_KEY = 'pizza-ralfs-tables'
 const AUTH_STORAGE_KEY = 'pizza-ralfs-auth'
 const ADMIN_LOGIN_PATH = '/acesso-admin-ralfs-2026'
-const ORDER_STORAGE_PREFIX = 'pizza-ralfs-last-order'
-const HOME_SPLASH_MS = 2000
+const HOME_SPLASH_MS = 5000
 const HOME_SPLASH_FADE_MS = 400
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+const LOGO_URL = '/logo-ralfs.png'
 
 const CatalogSplashContext = createContext('hidden')
+
+const CatalogReceiptContext = createContext(null)
 
 function isCatalogRoute(pathname) {
   return pathname === '/' || pathname.startsWith('/categoria/')
@@ -126,34 +159,46 @@ function sameItemId(left, right) {
   return normalizeItemId(left) === normalizeItemId(right)
 }
 
-function sameCartLine(left, right) {
-  const sizeMatch = (left.sizeId || '') === (right.sizeId || '')
-  const leftHalf = left.secondFlavorId || ''
-  const rightHalf = right.secondFlavorId || ''
-
-  if (leftHalf || rightHalf) {
-    if (!leftHalf || !rightHalf) return false
-    return (
-      sizeMatch &&
-      halfAndHalfPairKey(left.id, left.secondFlavorId) ===
-        halfAndHalfPairKey(right.id, right.secondFlavorId)
-    )
+function getCartFlavorIds(item) {
+  if (Array.isArray(item.flavorIds) && item.flavorIds.length > 0) {
+    return normalizeFlavorIdList(item.flavorIds)
   }
+  if (item.secondFlavorId) {
+    return normalizeFlavorIdList([item.id, item.secondFlavorId])
+  }
+  return normalizeFlavorIdList([item.id])
+}
 
-  return sameItemId(left.id, right.id) && sizeMatch
+function sameCartLine(left, right) {
+  if ((left.sizeId || '') !== (right.sizeId || '')) return false
+  const leftKey = multiFlavorCartKey(getCartFlavorIds(left), left.sizeId || '')
+  const rightKey = multiFlavorCartKey(getCartFlavorIds(right), right.sizeId || '')
+  return leftKey === rightKey
 }
 
 function cartLineKey(item) {
-  if (item.secondFlavorId) {
-    return `${halfAndHalfPairKey(item.id, item.secondFlavorId)}:${item.sizeId || ''}`
-  }
-  return `${normalizeItemId(item.id)}:${item.sizeId || ''}`
+  return multiFlavorCartKey(getCartFlavorIds(item), item.sizeId || '')
 }
 
 function formatBRL(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return 'R$ 0,00'
   return `R$ ${numeric.toFixed(2).replace('.', ',')}`
+}
+
+function formatApiError(error, fallback) {
+  const message = String(error?.message || '').trim()
+  if (!message) return fallback
+
+  if (
+    message === 'Failed to fetch' ||
+    message.includes('NetworkError') ||
+    message.includes('Load failed')
+  ) {
+    return 'API offline. Em outro terminal: cd backend && npm run dev'
+  }
+
+  return message
 }
 
 function normalizeMenuItems(items, categories) {
@@ -258,10 +303,10 @@ function App() {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedItems))
           setMenuSyncMessage('')
         } else {
-          setMenuSyncMessage('API sem produtos cadastrados. Usando cardapio local por enquanto.')
+          setMenuSyncMessage('Nenhum produto na API. Usando cardápio local.')
         }
       } catch {
-        setMenuSyncMessage('Sem conexao com API de produtos. Usando cardapio local.')
+        setMenuSyncMessage('Sem conexão com a API. Usando cardápio local.')
       }
     }
 
@@ -377,28 +422,9 @@ function App() {
   return (
     <BrowserRouter>
       <CatalogSplashProvider>
+      <CatalogReceiptProvider>
       <div className="app">
-        <header className="brand-header">
-          <Link to="/" className="brand-header-logo">
-            <img src={logoRalfs} alt="Pizzas Ralf's" />
-          </Link>
-          <div className="brand-header-text">
-            <p className="brand-header-kicker">Sabor tradicional</p>
-            <h1 className="brand-header-title">Pizzas Ralf&apos;s</h1>
-          </div>
-          <nav className="brand-header-nav">
-            <Link to="/">Cardapio</Link>
-            {isAuthenticated ? (
-              <>
-                <Link to="/admin">Admin</Link>
-                <Link to="/qrcodes">QR Mesas</Link>
-                <button type="button" className="nav-btn" onClick={handleLogout}>
-                  Sair
-                </button>
-              </>
-            ) : null}
-          </nav>
-        </header>
+        <BrandHeader isAuthenticated={isAuthenticated} onLogout={handleLogout} />
 
         <main>
           <Routes>
@@ -444,13 +470,81 @@ function App() {
                 />
               }
             />
+            <Route path="/pedidos" element={<OrdersPage />} />
+            <Route path="/relatorios" element={<ReportsPage />} />
             <Route path="/qrcodes" element={<QrCodesPage tables={tables} />} />
             </Route>
           </Routes>
         </main>
       </div>
+      </CatalogReceiptProvider>
       </CatalogSplashProvider>
     </BrowserRouter>
+  )
+}
+
+function BrandHeader({ isAuthenticated, onLogout }) {
+  const location = useLocation()
+  const searchParams = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search],
+  )
+  const mesa = resolveActiveTableNumber(searchParams)
+  const catalogTo = catalogPathWithMesa('/', mesa)
+
+  return (
+    <header className="brand-header">
+      <Link to={catalogTo} className="brand-header-logo">
+        <img src={LOGO_URL} alt="Pizzas Ralf's" />
+      </Link>
+      <div className="brand-header-text">
+        <p className="brand-header-kicker">Sabor tradicional</p>
+        <h1 className="brand-header-title">Pizzas Ralf&apos;s</h1>
+      </div>
+      <nav className="brand-header-nav">
+        <Link to={catalogTo}>Cardápio</Link>
+        {isAuthenticated ? (
+          <>
+            <Link to="/admin">Admin</Link>
+            <Link to="/pedidos">Pedidos</Link>
+            <Link to="/relatorios">Relatórios</Link>
+            <button type="button" className="nav-btn" onClick={onLogout}>
+              Sair
+            </button>
+          </>
+        ) : null}
+      </nav>
+    </header>
+  )
+}
+
+function CatalogReceiptProvider({ children }) {
+  const location = useLocation()
+  const [receiptOrder, setReceiptOrder] = useState(null)
+  const [orderSuccessMessage, setOrderSuccessMessage] = useState('')
+  const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false)
+
+  useEffect(() => {
+    if (!isCatalogRoute(location.pathname)) {
+      setReceiptOrder(null)
+      setOrderSuccessMessage('')
+    }
+  }, [location.pathname])
+
+  const value = useMemo(
+    () => ({
+      receiptOrder,
+      setReceiptOrder,
+      orderSuccessMessage,
+      setOrderSuccessMessage,
+      isDownloadingReceipt,
+      setIsDownloadingReceipt,
+    }),
+    [receiptOrder, orderSuccessMessage, isDownloadingReceipt],
+  )
+
+  return (
+    <CatalogReceiptContext.Provider value={value}>{children}</CatalogReceiptContext.Provider>
   )
 }
 
@@ -532,19 +626,19 @@ function LoginPage({ isAuthenticated, onLogin }) {
       navigate('/admin')
       return
     }
-    setError('Usuario ou senha invalidos.')
+    setError('Usuário ou senha inválidos.')
   }
 
   return (
     <section className="login-page">
       <h2>Login Admin</h2>
-      <p>Acesso restrito para Admin e QR Mesas.</p>
+      <p>Acesso restrito para Admin e Pedidos.</p>
       <form onSubmit={handleSubmit} className="login-form">
         <input
           name="username"
           value={form.username}
           onChange={handleChange}
-          placeholder="Usuario"
+          placeholder="Usuário"
         />
         <input
           name="password"
@@ -565,18 +659,27 @@ function OrderPanel({
   cart,
   mesaValida,
   mesa,
+  isDelivery,
+  deliveryInfo,
+  onDeliveryFieldChange,
+  deliveryFieldErrors,
+  deliveryFieldError,
   total,
   observation,
   setObservation,
   isSubmittingOrder,
   orderMessage,
-  lastOrder,
   changeQuantity,
   finalizeOrder,
-  downloadOrder,
   onClose,
   formatBRL,
+  canFinalize,
 }) {
+  const observationId = onClose ? 'order-observation-mobile' : 'order-observation'
+  const nameId = onClose ? 'delivery-name-mobile' : 'delivery-name'
+  const phoneId = onClose ? 'delivery-phone-mobile' : 'delivery-phone'
+  const addressId = onClose ? 'delivery-address-mobile' : 'delivery-address'
+  const referenceId = onClose ? 'delivery-reference-mobile' : 'delivery-reference'
   return (
     <aside className={className}>
       <div className="order-panel-head">
@@ -594,16 +697,18 @@ function OrderPanel({
         )}
       </div>
       <div className="order-panel-scroll">
-        {cart.length === 0 && <p className="order-empty-msg">Sua cesta esta vazia.</p>}
+        {cart.length === 0 && <p className="order-empty-msg">Sua cesta está vazia.</p>}
 
         {cart.map((item) => (
           <div key={cartLineKey(item)} className="basket-item">
             <div>
               <strong>{item.name}</strong>
-              {item.secondFlavorId && (
-                <span className="basket-item-half-note">Meia a meia · valor do sabor mais caro</span>
+              {getCartFlavorIds(item).length > 1 && (
+                <span className="basket-item-half-note">
+                  {getCartFlavorIds(item).length} sabores
+                </span>
               )}
-              {item.sizeLabel && !item.secondFlavorId && (
+              {item.sizeLabel && getCartFlavorIds(item).length <= 1 && (
                 <span className="basket-item-size">{item.sizeLabel}</span>
               )}
               <span>{formatBRL(item.price * item.qty)}</span>
@@ -622,15 +727,101 @@ function OrderPanel({
 
         <footer className="order-panel-footer">
           {mesaValida && <p className="mesa-total">Pedido da mesa #{mesa}</p>}
+          {isDelivery && (
+            <div className="delivery-fields">
+              <p className="delivery-fields-title">Entrega (delivery)</p>
+              <p className="delivery-fields-hint">
+                Todos os campos abaixo são <strong>obrigatórios</strong> para finalizar o pedido.
+                Seu celular pode sugerir nome e telefone automaticamente.
+              </p>
+              <label className="observation-label" htmlFor={nameId}>
+                Nome <span className="required-mark">*</span>
+              </label>
+              <input
+                id={nameId}
+                name="name"
+                type="text"
+                className={`delivery-input${deliveryFieldErrors.customerName ? ' delivery-input--invalid' : ''}`}
+                autoComplete="name"
+                required
+                aria-required="true"
+                aria-invalid={deliveryFieldErrors.customerName ? 'true' : undefined}
+                value={deliveryInfo.customerName}
+                onChange={(event) => onDeliveryFieldChange('customerName', event.target.value)}
+                placeholder="Seu nome"
+              />
+              {deliveryFieldErrors.customerName && (
+                <p className="delivery-field-error">{deliveryFieldErrors.customerName}</p>
+              )}
+              <label className="observation-label" htmlFor={phoneId}>
+                WhatsApp <span className="required-mark">*</span>
+              </label>
+              <input
+                id={phoneId}
+                name="tel"
+                type="tel"
+                className={`delivery-input${deliveryFieldErrors.customerPhone ? ' delivery-input--invalid' : ''}`}
+                autoComplete="tel"
+                inputMode="tel"
+                required
+                aria-required="true"
+                aria-invalid={deliveryFieldErrors.customerPhone ? 'true' : undefined}
+                value={deliveryInfo.customerPhone}
+                onChange={(event) => onDeliveryFieldChange('customerPhone', event.target.value)}
+                placeholder="(11) 99999-9999"
+              />
+              {deliveryFieldErrors.customerPhone && (
+                <p className="delivery-field-error">{deliveryFieldErrors.customerPhone}</p>
+              )}
+              <label className="observation-label" htmlFor={addressId}>
+                Endereço <span className="required-mark">*</span>
+              </label>
+              <input
+                id={addressId}
+                name="street-address"
+                type="text"
+                className={`delivery-input${deliveryFieldErrors.deliveryAddress ? ' delivery-input--invalid' : ''}`}
+                autoComplete="street-address"
+                required
+                aria-required="true"
+                aria-invalid={deliveryFieldErrors.deliveryAddress ? 'true' : undefined}
+                value={deliveryInfo.deliveryAddress}
+                onChange={(event) => onDeliveryFieldChange('deliveryAddress', event.target.value)}
+                placeholder="Rua, número, bairro"
+              />
+              {deliveryFieldErrors.deliveryAddress && (
+                <p className="delivery-field-error">{deliveryFieldErrors.deliveryAddress}</p>
+              )}
+              <label className="observation-label" htmlFor={referenceId}>
+                Ponto de referência <span className="required-mark">*</span>
+              </label>
+              <input
+                id={referenceId}
+                name="delivery-reference"
+                type="text"
+                className={`delivery-input${deliveryFieldErrors.deliveryReference ? ' delivery-input--invalid' : ''}`}
+                autoComplete="off"
+                required
+                aria-required="true"
+                aria-invalid={deliveryFieldErrors.deliveryReference ? 'true' : undefined}
+                value={deliveryInfo.deliveryReference}
+                onChange={(event) =>
+                  onDeliveryFieldChange('deliveryReference', event.target.value)
+                }
+                placeholder="Ex: portão azul, casa dos fundos"
+              />
+              {deliveryFieldErrors.deliveryReference && (
+                <p className="delivery-field-error">{deliveryFieldErrors.deliveryReference}</p>
+              )}
+              {deliveryFieldError && <p className="order-message">{deliveryFieldError}</p>}
+            </div>
+          )}
           <h3 className="order-total">Total: R$ {total.toFixed(2)}</h3>
-          <label
-            htmlFor={onClose ? 'order-observation-mobile' : 'order-observation'}
-            className="observation-label"
-          >
-            Observacao do pedido
+          <label className="observation-label" htmlFor={observationId}>
+            Observação do pedido
           </label>
           <textarea
-            id={onClose ? 'order-observation-mobile' : 'order-observation'}
+            id={observationId}
             className="observation-input"
             value={observation}
             onChange={(event) => setObservation(event.target.value)}
@@ -640,19 +831,11 @@ function OrderPanel({
             type="button"
             className="btn-primary"
             onClick={finalizeOrder}
-            disabled={cart.length === 0 || isSubmittingOrder}
+            disabled={cart.length === 0 || isSubmittingOrder || !canFinalize}
           >
-            {isSubmittingOrder ? 'Enviando...' : 'Finalizar pedido'}
+            {isSubmittingOrder ? 'Enviando...' : isDelivery ? 'Finalizar delivery' : 'Finalizar pedido'}
           </button>
           {orderMessage && <p className="order-message">{orderMessage}</p>}
-          <button
-            type="button"
-            className="download-btn"
-            onClick={() => lastOrder && downloadOrder(lastOrder)}
-            disabled={!lastOrder}
-          >
-            Baixar ultimo pedido
-          </button>
         </footer>
       </div>
     </aside>
@@ -668,10 +851,10 @@ function HomeSplash({ phase }) {
       role="status"
       aria-live="polite"
       aria-busy={phase === 'visible'}
-      aria-label="Carregando cardapio"
+      aria-label="Carregando cardápio"
     >
       <div className="home-splash-inner">
-        <img src={logoRalfs} alt="Pizzas Ralf's" className="home-splash-logo" />
+        <img src={LOGO_URL} alt="Pizzas Ralf's" className="home-splash-logo" />
         <p className="home-splash-kicker">Sabor tradicional</p>
         <div className="home-splash-loader" aria-hidden="true">
           <span />
@@ -686,64 +869,99 @@ function HomeSplash({ phase }) {
 
 function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
   const hasSizes = itemHasSizes(menuItem)
-  const canHalfAndHalf = hasSizes && pizzaItems.length > 1
   const [selectedSizeId, setSelectedSizeId] = useState(
     () => menuItem.sizes?.[0]?.id || 'broto',
   )
-  const [pizzaMode, setPizzaMode] = useState('inteira')
-  const [secondFlavorId, setSecondFlavorId] = useState('')
+  const [selectedFlavorIds, setSelectedFlavorIds] = useState(() => [
+    normalizeItemId(menuItem.id),
+  ])
 
   const selectedSize =
     menuItem.sizes?.find((size) => size.id === selectedSizeId) || menuItem.sizes?.[0]
+  const pieceCount = getPiecesForSize(selectedSizeId, menuItem.sizes)
+  const maxFlavors = getMaxFlavorsForSize(selectedSizeId)
   const unitPrice = hasSizes ? selectedSize?.price || menuItem.price : menuItem.price
+
+  const pizzaById = useMemo(() => {
+    const map = new Map()
+    for (const item of pizzaItems) {
+      map.set(normalizeItemId(item.id), item)
+    }
+    map.set(normalizeItemId(menuItem.id), menuItem)
+    return map
+  }, [pizzaItems, menuItem])
 
   const otherPizzaOptions = useMemo(
     () => pizzaItems.filter((item) => !sameItemId(item.id, menuItem.id)),
     [pizzaItems, menuItem.id],
   )
 
-  const secondFlavor = useMemo(
-    () => otherPizzaOptions.find((item) => sameItemId(item.id, secondFlavorId)),
-    [otherPizzaOptions, secondFlavorId],
+  const selectedFlavors = useMemo(
+    () =>
+      normalizeFlavorIdList(selectedFlavorIds)
+        .map((id) => pizzaById.get(id))
+        .filter(Boolean),
+    [selectedFlavorIds, pizzaById],
   )
 
   const displayPrice = useMemo(() => {
-    if (pizzaMode === 'meia' && secondFlavor) {
-      return computeHalfAndHalfPrice(menuItem, secondFlavor, selectedSizeId)
-    }
-    return unitPrice
-  }, [pizzaMode, secondFlavor, menuItem, selectedSizeId, unitPrice])
+    if (selectedFlavors.length <= 1) return unitPrice
+    return computeMultiFlavorPrice(pizzaById, selectedFlavorIds, selectedSizeId)
+  }, [selectedFlavors.length, selectedFlavorIds, pizzaById, selectedSizeId, unitPrice])
 
-  const handleAdd = () => {
-    const sizeLabel = selectedSize
-      ? `${selectedSize.label} (${selectedSize.pieces} pedacos)`
-      : ''
-
-    if (pizzaMode === 'meia') {
-      if (!secondFlavor) return
-
-      onAddToCart({
-        ...menuItem,
-        price: displayPrice,
-        sizeId: selectedSize?.id || '',
-        sizeLabel,
-        secondFlavorId: normalizeItemId(secondFlavor.id),
-        name: buildHalfAndHalfCartName(menuItem, secondFlavor, sizeLabel),
-      })
-      return
-    }
-
-    onAddToCart({
-      ...menuItem,
-      price: unitPrice,
-      sizeId: selectedSize?.id || '',
-      sizeLabel,
-      secondFlavorId: '',
-      name: sizeLabel ? `${menuItem.name} — ${selectedSize.label}` : menuItem.name,
+  const handleSizeChange = (sizeId) => {
+    setSelectedSizeId(sizeId)
+    const max = getMaxFlavorsForSize(sizeId)
+    setSelectedFlavorIds((current) => {
+      const trimmed = normalizeFlavorIdList(current).slice(0, max)
+      const primary = normalizeItemId(menuItem.id)
+      if (!trimmed.includes(primary)) return [primary, ...trimmed].slice(0, max)
+      return trimmed.length ? trimmed : [primary]
     })
   }
 
-  const addDisabled = pizzaMode === 'meia' && !secondFlavor
+  const handleAddFlavor = (flavorId) => {
+    const id = normalizeItemId(flavorId)
+    if (!id) return
+    setSelectedFlavorIds((current) => {
+      const next = normalizeFlavorIdList([...current, id])
+      return next.slice(0, maxFlavors)
+    })
+  }
+
+  const handleRemoveFlavor = (flavorId) => {
+    const id = normalizeItemId(flavorId)
+    if (sameItemId(id, menuItem.id)) return
+    setSelectedFlavorIds((current) =>
+      normalizeFlavorIdList(current).filter((entry) => !sameItemId(entry, id)),
+    )
+  }
+
+  const handleAdd = () => {
+    const sizeLabel = selectedSize
+      ? `${selectedSize.label} (${selectedSize.pieces} pedaços)`
+      : ''
+    const flavorIds = normalizeFlavorIdList(selectedFlavorIds)
+    const flavorItems = flavorIds.map((id) => pizzaById.get(id)).filter(Boolean)
+    const name =
+      flavorItems.length > 1
+        ? buildMultiFlavorCartName(flavorItems, sizeLabel)
+        : sizeLabel
+          ? `${menuItem.name} — ${selectedSize.label}`
+          : menuItem.name
+
+    onAddToCart({
+      ...menuItem,
+      price: displayPrice,
+      sizeId: selectedSize?.id || '',
+      sizeLabel,
+      flavorIds,
+      secondFlavorId: flavorIds[1] || '',
+      name,
+    })
+  }
+
+  const addDisabled = selectedFlavors.length === 0
 
   return (
     <article className="card">
@@ -765,50 +983,6 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
 
       {hasSizes ? (
         <>
-          {canHalfAndHalf && (
-            <div className="pizza-mode">
-              <span className="pizza-sizes-label">Tipo</span>
-              <div className="pizza-mode-options" role="group" aria-label="Tipo da pizza">
-                <button
-                  type="button"
-                  className={`pizza-mode-btn${pizzaMode === 'inteira' ? ' is-active' : ''}`}
-                  onClick={() => setPizzaMode('inteira')}
-                >
-                  Inteira
-                </button>
-                <button
-                  type="button"
-                  className={`pizza-mode-btn${pizzaMode === 'meia' ? ' is-active' : ''}`}
-                  onClick={() => setPizzaMode('meia')}
-                >
-                  Meia a meia
-                </button>
-              </div>
-              {pizzaMode === 'meia' && (
-                <div className="pizza-half-flavor">
-                  <label className="pizza-half-flavor-label" htmlFor={`half-${menuItem.id}`}>
-                    Segundo sabor
-                  </label>
-                  <select
-                    id={`half-${menuItem.id}`}
-                    className="pizza-half-flavor-select"
-                    value={secondFlavorId}
-                    onChange={(event) => setSecondFlavorId(event.target.value)}
-                  >
-                    <option value="">Escolha o outro sabor</option>
-                    {otherPizzaOptions.map((item) => (
-                      <option key={item.id} value={normalizeItemId(item.id)}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="pizza-half-hint">
-                    Cobrado o valor do sabor mais caro neste tamanho.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
           <div className="pizza-sizes">
             <span className="pizza-sizes-label">Tamanho</span>
             <div className="pizza-sizes-options" role="group" aria-label="Tamanho da pizza">
@@ -817,15 +991,27 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
                   key={size.id}
                   type="button"
                   className={`pizza-size-btn${selectedSizeId === size.id ? ' is-active' : ''}`}
-                  onClick={() => setSelectedSizeId(size.id)}
+                  onClick={() => handleSizeChange(size.id)}
                 >
                   <span className="pizza-size-btn-label">{size.label}</span>
-                  <span className="pizza-size-btn-meta">{size.pieces} pedacos</span>
+                  <span className="pizza-size-btn-meta">{size.pieces} pedaços</span>
                   <span className="pizza-size-btn-price">R$ {size.price.toFixed(2)}</span>
                 </button>
               ))}
             </div>
           </div>
+
+          <PizzaSlicePicker
+            sizeId={selectedSizeId}
+            pieceCount={pieceCount}
+            primaryFlavor={menuItem}
+            selectedFlavors={selectedFlavors}
+            otherPizzaOptions={otherPizzaOptions}
+            onAddFlavor={handleAddFlavor}
+            onRemoveFlavor={handleRemoveFlavor}
+            normalizeItemId={normalizeItemId}
+            sameItemId={sameItemId}
+          />
         </>
       ) : (
         <strong className="card-price">{formatPriceRangeLabel(menuItem)}</strong>
@@ -834,7 +1020,7 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [] }) {
       {hasSizes && (
         <strong className="card-price card-price--selected">
           R$ {displayPrice.toFixed(2)}
-          {pizzaMode === 'meia' && secondFlavor && (
+          {selectedFlavors.length > 1 && (
             <span className="card-price-note"> (sabor mais caro)</span>
           )}
         </strong>
@@ -853,7 +1039,16 @@ function HomePage({ menuItems, tables, categories }) {
   const splashPhase = useContext(CatalogSplashContext)
   const [cart, setCart] = useState([])
   const [observation, setObservation] = useState('')
-  const [lastOrder, setLastOrder] = useState(null)
+  const [deliveryInfo, setDeliveryInfo] = useState(() => loadDeliveryInfoFromSession())
+  const [deliveryFieldError, setDeliveryFieldError] = useState('')
+  const {
+    receiptOrder,
+    setReceiptOrder,
+    orderSuccessMessage,
+    setOrderSuccessMessage,
+    isDownloadingReceipt,
+    setIsDownloadingReceipt,
+  } = useContext(CatalogReceiptContext)
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
   const [orderMessage, setOrderMessage] = useState('')
   const [orderOpen, setOrderOpen] = useState(false)
@@ -861,12 +1056,25 @@ function HomePage({ menuItems, tables, categories }) {
     () => new URLSearchParams(location.search),
     [location.search],
   )
-  const mesaRaw = searchParams.get('mesa')
-  const mesa = mesaRaw ? Number(mesaRaw) : null
-  const mesaValida = mesa && Number.isInteger(mesa) && tables.includes(mesa)
-  const orderStorageKey = mesaValida
-    ? `${ORDER_STORAGE_PREFIX}-mesa-${mesa}`
-    : `${ORDER_STORAGE_PREFIX}-cliente`
+  const mesa = resolveActiveTableNumber(searchParams)
+  const mesaIdentificada = mesa !== null
+  const mesaCadastrada = mesaIdentificada && tables.includes(mesa)
+  const isDelivery = !mesaIdentificada
+
+  const deliveryValidation = useMemo(
+    () => (isDelivery ? validateDeliveryInfo(deliveryInfo) : { ok: true }),
+    [isDelivery, deliveryInfo],
+  )
+  const canFinalize = !isDelivery || deliveryValidation.ok
+  const deliveryFieldErrors = useMemo(() => {
+    if (!isDelivery || cart.length === 0 || canFinalize) return {}
+    return getDeliveryFieldErrors(deliveryInfo)
+  }, [isDelivery, cart.length, canFinalize, deliveryInfo])
+
+  useEffect(() => {
+    if (mesa) persistTableNumber(mesa)
+  }, [mesa])
+
   const activeCategory = resolveActiveCategory(categories, categoryId || categories[0]?.id)
   const activeSubcategory = resolveActiveSubcategory(
     categories,
@@ -884,20 +1092,6 @@ function HomePage({ menuItems, tables, categories }) {
     () => menuItems.filter((item) => isPizzaCategory(item.category)),
     [menuItems],
   )
-
-  useEffect(() => {
-    const saved = localStorage.getItem(orderStorageKey)
-    if (!saved) {
-      setLastOrder(null)
-      return
-    }
-
-    try {
-      setLastOrder(JSON.parse(saved))
-    } catch {
-      setLastOrder(null)
-    }
-  }, [orderStorageKey])
 
   const addToCart = (cartItem) => {
     setCart((current) => {
@@ -946,47 +1140,56 @@ function HomePage({ menuItems, tables, categories }) {
     }
   }, [orderOpen])
 
-  const formatOrderText = (order) => {
-    const lines = [
-      'Comprovante do Pedido - Pizza Ralfs',
-      `Pedido: #${order.id}`,
-      `Data: ${new Date(order.createdAt).toLocaleString('pt-BR')}`,
-      order.mesa ? `Mesa: ${order.mesa}` : 'Mesa: nao identificada',
-      '',
-      'Itens:',
-      ...order.items.map(
-        (item) =>
-          `- ${item.qty}x ${item.name} (${item.categoryLabel}) - R$ ${(
-            item.price * item.qty
-          ).toFixed(2)}`,
-      ),
-      '',
-      `Total: R$ ${order.total.toFixed(2)}`,
-      `Observacao: ${order.observation || 'Sem observacoes'}`,
-    ]
-
-    return lines.join('\n')
+  const downloadReceipt = async (order) => {
+    if (!order || isDownloadingReceipt) return
+    setIsDownloadingReceipt(true)
+    try {
+      await downloadOrderReceiptImage(order)
+    } catch {
+      setOrderMessage('Não foi possível gerar o comprovante. Tente de novo.')
+    } finally {
+      setIsDownloadingReceipt(false)
+    }
   }
 
-  const downloadOrder = (order) => {
-    const text = formatOrderText(order)
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `pedido-${order.id}.txt`
-    link.click()
-    URL.revokeObjectURL(url)
+  const handleDeliveryFieldChange = (field, value) => {
+    setDeliveryFieldError('')
+    if (field === 'customerPhone') {
+      const digits = normalizePhoneDigits(value)
+      setDeliveryInfo((current) => ({
+        ...current,
+        customerPhone: digits.length >= 10 ? formatPhoneDisplay(digits) : value,
+      }))
+      return
+    }
+    setDeliveryInfo((current) => ({ ...current, [field]: value }))
   }
 
   const finalizeOrder = async () => {
     if (cart.length === 0 || isSubmittingOrder) return
 
+    let deliveryData = null
+    if (isDelivery) {
+      const check = validateDeliveryInfo(deliveryInfo)
+      if (!check.ok) {
+        setDeliveryFieldError(check.message)
+        return
+      }
+      deliveryData = check.data
+      saveDeliveryInfoToSession(check.data)
+    }
+
     setIsSubmittingOrder(true)
     setOrderMessage('')
+    setDeliveryFieldError('')
 
     const orderPayload = {
-      mesa: mesaValida ? mesa : null,
+      mesa: mesaIdentificada ? mesa : null,
+      orderType: isDelivery ? 'delivery' : 'table',
+      customerName: deliveryData?.customerName || '',
+      customerPhone: deliveryData?.customerPhone || '',
+      deliveryAddress: deliveryData?.deliveryAddress || '',
+      deliveryReference: deliveryData?.deliveryReference || '',
       observation: observation.trim(),
       items: cart.map((item) => ({
         id: item.id,
@@ -997,6 +1200,7 @@ function HomePage({ menuItems, tables, categories }) {
         sizeId: item.sizeId || '',
         sizeLabel: item.sizeLabel || '',
         secondFlavorId: item.secondFlavorId || '',
+        flavorIds: getCartFlavorIds(item),
         qty: item.qty,
         price: item.price,
       })),
@@ -1006,6 +1210,11 @@ function HomePage({ menuItems, tables, categories }) {
       id: Date.now(),
       createdAt: new Date().toISOString(),
       mesa: orderPayload.mesa,
+      orderType: orderPayload.orderType,
+      customerName: orderPayload.customerName,
+      customerPhone: orderPayload.customerPhone,
+      deliveryAddress: orderPayload.deliveryAddress,
+      deliveryReference: orderPayload.deliveryReference,
       observation: orderPayload.observation,
       items: orderPayload.items,
       total,
@@ -1029,24 +1238,29 @@ function HomePage({ menuItems, tables, categories }) {
         id: createdOrder.id,
         createdAt: createdOrder.createdAt || new Date().toISOString(),
         mesa: createdOrder.tableNumber,
+        orderType: createdOrder.orderType || orderPayload.orderType,
+        customerName: createdOrder.customerName || '',
+        customerPhone: createdOrder.customerPhone || '',
+        deliveryAddress: createdOrder.deliveryAddress || '',
+        deliveryReference: createdOrder.deliveryReference || '',
         observation: createdOrder.observation || '',
         items: orderPayload.items,
         total: Number(createdOrder.totalAmount || total),
       }
 
-      setLastOrder(orderToSave)
-      localStorage.setItem(orderStorageKey, JSON.stringify(orderToSave))
+      setReceiptOrder(orderToSave)
+      setOrderSuccessMessage('Pedido feito com sucesso!')
       setCart([])
       setObservation('')
       setOrderOpen(false)
-      setOrderMessage('Pedido enviado com sucesso!')
+      setOrderMessage('')
     } catch {
-      setLastOrder(fallbackOrder)
-      localStorage.setItem(orderStorageKey, JSON.stringify(fallbackOrder))
+      setReceiptOrder(fallbackOrder)
+      setOrderSuccessMessage('Pedido feito com sucesso!')
       setCart([])
       setObservation('')
       setOrderOpen(false)
-      setOrderMessage('Pedido salvo localmente (API indisponivel no momento).')
+      setOrderMessage('')
     } finally {
       setIsSubmittingOrder(false)
     }
@@ -1064,28 +1278,31 @@ function HomePage({ menuItems, tables, categories }) {
   const buildCategoryPath = (nextCategoryId, nextSubcategoryId = null) => {
     const category = categories.find((item) => item.id === nextCategoryId)
     const hasSubs = (category?.subcategories || []).length > 0
-    const mesaQuery = mesaValida ? `?mesa=${mesa}` : ''
     if (hasSubs) {
       const sub = nextSubcategoryId || 'todas'
-      return `/categoria/${nextCategoryId}/${sub}${mesaQuery}`
+      return catalogPathWithMesa(`/categoria/${nextCategoryId}/${sub}`, mesa)
     }
-    return `/categoria/${nextCategoryId}${mesaQuery}`
+    return catalogPathWithMesa(`/categoria/${nextCategoryId}`, mesa)
   }
 
   const orderPanelProps = {
     cart,
-    mesaValida,
+    mesaValida: mesaIdentificada,
     mesa,
+    isDelivery,
+    deliveryInfo,
+    onDeliveryFieldChange: handleDeliveryFieldChange,
+    deliveryFieldErrors,
+    deliveryFieldError,
     total,
     observation,
     setObservation,
     isSubmittingOrder,
     orderMessage,
-    lastOrder,
     changeQuantity,
     finalizeOrder,
-    downloadOrder,
     formatBRL,
+    canFinalize,
   }
 
   const orderPanelSheet = (
@@ -1143,33 +1360,42 @@ function HomePage({ menuItems, tables, categories }) {
       <section className="layout home-layout">
       <div className="menu-grid">
         <div className="menu-watermark" aria-hidden="true">
-          <img src={logoRalfs} alt="" />
+          <img src={LOGO_URL} alt="" />
         </div>
-        {lastOrder && (
-          <div className="last-order-banner">
-            <strong>Ultimo pedido salvo: #{lastOrder.id}</strong>
+        {receiptOrder && (
+          <div className="last-order-banner" role="status" aria-live="polite">
+            <p className="order-success-heading">{orderSuccessMessage}</p>
             <span>
-              Total R$ {lastOrder.total.toFixed(2)} em{' '}
-              {new Date(lastOrder.createdAt).toLocaleString('pt-BR')}
+              Pedido #{receiptOrder.id} · Total R$ {receiptOrder.total.toFixed(2)} ·{' '}
+              {new Date(receiptOrder.createdAt).toLocaleString('pt-BR')}
             </span>
-            <button type="button" onClick={() => downloadOrder(lastOrder)}>
-              Baixar comprovante
+            {orderMessage && <p className="order-success-note">{orderMessage}</p>}
+            <span className="last-order-banner-hint">
+              Baixe o comprovante em imagem agora. Ao atualizar a página ou sair do cardápio, ele
+              não ficará mais disponível.
+            </span>
+            <button
+              type="button"
+              className="btn-primary last-order-banner-btn"
+              disabled={isDownloadingReceipt}
+              onClick={() => downloadReceipt(receiptOrder)}
+            >
+              {isDownloadingReceipt ? 'Gerando imagem...' : 'Baixar comprovante (PNG)'}
             </button>
           </div>
         )}
-        <div className="table-banner">
-          {mesaValida ? (
+        <div className={`table-banner${isDelivery ? ' table-banner--delivery' : ''}`}>
+          {mesaIdentificada ? (
             <>
               <strong>Mesa #{mesa}</strong>
-              <span className="table-banner-msg">Pedido identificado automaticamente.</span>
-            </>
-          ) : (
-            <>
-              <strong>Mesa nao identificada</strong>
               <span className="table-banner-msg">
-                Acesse por um QR da mesa para identificar seu pedido.
+                {mesaCadastrada
+                  ? 'Pedido identificado automaticamente.'
+                  : 'Mesa do QR reconhecida. Cadastre esta mesa no admin se ainda não existir.'}
               </span>
             </>
+          ) : (
+            <strong>Delivery</strong>
           )}
         </div>
         <div className="category-section-head">
@@ -1229,6 +1455,538 @@ function HomePage({ menuItems, tables, categories }) {
     </section>
     </div>
     </>
+  )
+}
+
+const REPORT_ORDERS_PAGE_SIZE = 15
+
+function OrdersReportTable({ title, orders, emptyMessage, variant = 'default' }) {
+  const [page, setPage] = useState(1)
+
+  useEffect(() => {
+    setPage(1)
+  }, [orders])
+
+  if (!orders.length) {
+    return (
+      <section className={`report-table-block report-table-block--${variant}`}>
+        <h3 className="report-table-title">{title}</h3>
+        <p className="report-table-empty">{emptyMessage}</p>
+      </section>
+    )
+  }
+
+  const totalPages = Math.max(1, Math.ceil(orders.length / REPORT_ORDERS_PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * REPORT_ORDERS_PAGE_SIZE
+  const pageOrders = orders.slice(pageStart, pageStart + REPORT_ORDERS_PAGE_SIZE)
+  const rangeStart = pageStart + 1
+  const rangeEnd = pageStart + pageOrders.length
+
+  return (
+    <section className={`report-table-block report-table-block--${variant}`}>
+      <h3 className="report-table-title">{title}</h3>
+      <div className="report-table-wrap">
+        <table className="report-table">
+          <thead>
+            <tr>
+              <th>Pedido</th>
+              <th>Data</th>
+              <th>Mesa</th>
+              <th>Status</th>
+              <th className="report-table-num">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageOrders.map((order) => (
+              <tr key={order.id}>
+                <td>#{order.id}</td>
+                <td>{formatOrderDateTime(order.createdAt)}</td>
+                <td>
+                  {isDeliveryOrder(order.tableNumber, order.orderType) ? (
+                    <span className="report-delivery-cell">
+                      Delivery
+                      {order.customerName ? ` · ${order.customerName}` : ''}
+                    </span>
+                  ) : order.tableNumber ? (
+                    `Mesa ${order.tableNumber}`
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td>
+                  <span className={`orders-status-badge ${orderStatusBadgeClass(order.status)}`}>
+                    {orderStatusLabel(order.status)}
+                  </span>
+                </td>
+                <td className="report-table-num">{formatOrderMoney(order.totalAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {totalPages > 1 && (
+        <nav className="report-table-pagination" aria-label={`Paginação: ${title}`}>
+          <span className="report-table-pagination-info">
+            {rangeStart}–{rangeEnd} de {orders.length}
+          </span>
+          <div className="report-table-pagination-actions">
+            <button
+              type="button"
+              className="admin-btn admin-btn-outline"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+            >
+              Anterior
+            </button>
+            <span className="report-table-pagination-page">
+              Página {currentPage} de {totalPages}
+            </span>
+            <button
+              type="button"
+              className="admin-btn admin-btn-outline"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+            >
+              Próxima
+            </button>
+          </div>
+        </nav>
+      )}
+    </section>
+  )
+}
+
+function ReportsPage() {
+  const [fromDate, setFromDate] = useState(() => dateInputDaysAgo(30))
+  const [toDate, setToDate] = useState(todayDateInputValue)
+  const [report, setReport] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const loadReport = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await fetchOrdersReport(API_BASE_URL, fromDate, toDate)
+      setReport(data)
+    } catch (loadError) {
+      setReport(null)
+      setError(formatApiError(loadError, 'Não foi possível carregar o relatório.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadReport()
+  }, [])
+
+  const summary = report?.summary
+
+  return (
+    <section className="reports-page">
+      <header className="reports-page-header">
+        <div>
+          <h2>Relatórios</h2>
+          <p>Vendas e cancelamentos por período. Pedidos cancelados não entram no total vendido.</p>
+        </div>
+      </header>
+
+      <form
+        className="reports-filters admin-inline-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          loadReport()
+        }}
+      >
+        <label className="admin-field">
+          <span className="admin-field-label">De</span>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(event) => setFromDate(event.target.value)}
+            required
+          />
+        </label>
+        <label className="admin-field">
+          <span className="admin-field-label">Até</span>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+            required
+          />
+        </label>
+        <button type="submit" className="admin-btn admin-btn-primary" disabled={loading}>
+          {loading ? 'Buscando...' : 'Buscar'}
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn-outline"
+          disabled={loading || !report}
+          onClick={() => downloadOrdersReportExcel(report, fromDate, toDate)}
+        >
+          Exportar Excel
+        </button>
+      </form>
+
+      {error && <p className="orders-page-error">{error}</p>}
+
+      {loading && !report && !error && (
+        <p className="report-table-empty">Carregando relatório...</p>
+      )}
+
+      {summary && (
+        <div className="reports-summary">
+          <article className="reports-summary-card reports-summary-card--sold">
+            <span className="reports-summary-label">Pedidos vendidos</span>
+            <strong className="reports-summary-value">{summary.soldCount}</strong>
+            <span className="reports-summary-money">{formatOrderMoney(summary.soldTotal)}</span>
+          </article>
+          <article className="reports-summary-card reports-summary-card--cancelled">
+            <span className="reports-summary-label">Pedidos cancelados</span>
+            <strong className="reports-summary-value">{summary.cancelledCount}</strong>
+            <span className="reports-summary-money">
+              {formatOrderMoney(summary.cancelledTotal)}
+            </span>
+          </article>
+        </div>
+      )}
+
+      {report && (
+        <>
+          <OrdersReportTable
+            title={`Todos os pedidos (${report.orders.length})`}
+            orders={report.orders}
+            emptyMessage="Nenhum pedido neste período."
+          />
+          <OrdersReportTable
+            title={`Vendas — não cancelados (${report.soldOrders.length})`}
+            orders={report.soldOrders}
+            emptyMessage="Nenhuma venda neste período."
+            variant="sold"
+          />
+          <OrdersReportTable
+            title={`Cancelados (${report.cancelledOrders.length})`}
+            orders={report.cancelledOrders}
+            emptyMessage="Nenhum cancelamento neste período."
+            variant="cancelled"
+          />
+        </>
+      )}
+    </section>
+  )
+}
+
+function OrdersPage() {
+  const [orders, setOrders] = useState([])
+  const [filter, setFilter] = useState('pending')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [actionId, setActionId] = useState(null)
+  const [cancelModal, setCancelModal] = useState(null)
+  const [successModal, setSuccessModal] = useState(null)
+
+  const loadOrders = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const response = await fetch(`${API_BASE_URL}/orders`)
+      if (!response.ok) throw new Error('Falha ao carregar pedidos')
+      const data = await response.json()
+      setOrders(Array.isArray(data) ? data : [])
+    } catch (loadError) {
+      setError(formatApiError(loadError, 'Não foi possível carregar pedidos.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadOrders()
+    const timer = window.setInterval(loadOrders, 15000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const fetchOrderItems = async (orderId) => {
+    const response = await fetch(`${API_BASE_URL}/orders/${orderId}/items`)
+    if (!response.ok) throw new Error('Falha ao carregar itens do pedido')
+    return response.json()
+  }
+
+  const updateOrderInList = (orderId, patch) => {
+    setOrders((current) =>
+      current.map((order) =>
+        String(order.id) === String(orderId) ? { ...order, ...patch } : order,
+      ),
+    )
+  }
+
+  const handlePrint = async (order) => {
+    if (isOrderCancelled(order.status)) return
+
+    setActionId(order.id)
+    setError('')
+    try {
+      const items = await fetchOrderItems(order.id)
+      await printOrderDocument(order, items)
+      if (!isOrderPrinted(order.status)) {
+        const updated = await patchOrderStatus(API_BASE_URL, order.id, ORDER_STATUS.PRINTED)
+        updateOrderInList(order.id, updated)
+      }
+    } catch (printError) {
+      setError(formatApiError(printError, 'Não foi possível imprimir o pedido.'))
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  const handleMarkPrinted = async (order) => {
+    setActionId(order.id)
+    setError('')
+    try {
+      const updated = await patchOrderStatus(API_BASE_URL, order.id, ORDER_STATUS.PRINTED)
+      updateOrderInList(order.id, updated)
+    } catch (markError) {
+      setError(formatApiError(markError, 'Não foi possível marcar como impresso.'))
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  const handleMarkPending = async (order) => {
+    setActionId(order.id)
+    setError('')
+    try {
+      const updated = await patchOrderStatus(API_BASE_URL, order.id, ORDER_STATUS.PENDING)
+      updateOrderInList(order.id, updated)
+    } catch (markError) {
+      setError(formatApiError(markError, 'Não foi possível marcar como não impresso.'))
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  const openCancelModal = (order) => {
+    setCancelModal({
+      variant: 'confirm',
+      title: 'Cancelar pedido?',
+      description: `Pedido #${order.id} · ${formatOrderMoney(order.totalAmount)}. Ele sairá das vendas e aparecerá como cancelado nos relatórios.`,
+      confirmLabel: 'Sim, cancelar',
+      cancelLabel: 'Não',
+      order,
+    })
+  }
+
+  const confirmCancelOrder = async () => {
+    const order = cancelModal?.order
+    if (!order) return
+
+    setCancelModal(null)
+    setActionId(order.id)
+    setError('')
+    try {
+      const updated = await patchOrderStatus(API_BASE_URL, order.id, ORDER_STATUS.CANCELLED)
+      updateOrderInList(order.id, updated)
+      setSuccessModal({
+        variant: 'success',
+        title: 'Pedido cancelado',
+        description: `Pedido #${order.id} foi cancelado com sucesso.`,
+      })
+    } catch (cancelError) {
+      setError(formatApiError(cancelError, 'Não foi possível cancelar o pedido.'))
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  const activeOrders = orders.filter((order) => !isOrderCancelled(order.status))
+  const pendingCount = activeOrders.filter((order) => !isOrderPrinted(order.status)).length
+  const printedCount = activeOrders.filter((order) => isOrderPrinted(order.status)).length
+  const cancelledCount = orders.filter((order) => isOrderCancelled(order.status)).length
+
+  const filteredOrders = orders.filter((order) => {
+    if (filter === 'pending') return !isOrderCancelled(order.status) && !isOrderPrinted(order.status)
+    if (filter === 'printed') return !isOrderCancelled(order.status) && isOrderPrinted(order.status)
+    if (filter === 'cancelled') return isOrderCancelled(order.status)
+    return true
+  })
+
+  return (
+    <section className="orders-page">
+      <header className="orders-page-header">
+        <div>
+          <h2>Pedidos</h2>
+          <p>Impressora térmica (bobina 80 mm). Duas vias no mesmo cupom; ao imprimir, marca como impresso.</p>
+        </div>
+        <button type="button" className="admin-btn admin-btn-outline" onClick={loadOrders} disabled={loading}>
+          {loading ? 'Atualizando...' : 'Atualizar'}
+        </button>
+      </header>
+
+      {error && <p className="orders-page-error">{error}</p>}
+
+      <div className="orders-filters" role="tablist" aria-label="Filtrar pedidos">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'pending'}
+          className={`orders-filter-btn${filter === 'pending' ? ' is-active' : ''}`}
+          onClick={() => setFilter('pending')}
+        >
+          Não impressos ({pendingCount})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'printed'}
+          className={`orders-filter-btn${filter === 'printed' ? ' is-active' : ''}`}
+          onClick={() => setFilter('printed')}
+        >
+          Impressos ({printedCount})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'cancelled'}
+          className={`orders-filter-btn${filter === 'cancelled' ? ' is-active' : ''}`}
+          onClick={() => setFilter('cancelled')}
+        >
+          Cancelados ({cancelledCount})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === 'all'}
+          className={`orders-filter-btn${filter === 'all' ? ' is-active' : ''}`}
+          onClick={() => setFilter('all')}
+        >
+          Todos ({orders.length})
+        </button>
+      </div>
+
+      {loading && orders.length === 0 ? (
+        <p className="orders-page-empty">Carregando pedidos...</p>
+      ) : filteredOrders.length === 0 ? (
+        <p className="orders-page-empty">Nenhum pedido neste filtro.</p>
+      ) : (
+        <div className="orders-list">
+          {filteredOrders.map((order) => {
+            const printed = isOrderPrinted(order.status)
+            const cancelled = isOrderCancelled(order.status)
+            const busy = String(actionId) === String(order.id)
+
+            return (
+              <article
+                key={order.id}
+                className={`orders-card${printed ? ' orders-card--printed' : ''}${
+                  cancelled ? ' orders-card--cancelled' : ''
+                }`}
+              >
+                <div className="orders-card-head">
+                  <div>
+                    <strong className="orders-card-id">Pedido #{order.id}</strong>
+                    <p className="orders-card-meta">
+                      {formatOrderDateTime(order.createdAt)}
+                      {' · '}
+                      {isDeliveryOrder(order.tableNumber, order.orderType)
+                        ? 'Delivery'
+                        : order.tableNumber
+                          ? `Mesa ${order.tableNumber}`
+                          : 'Sem mesa'}
+                    </p>
+                  </div>
+                  <span className={`orders-status-badge ${orderStatusBadgeClass(order.status)}`}>
+                    {orderStatusLabel(order.status)}
+                  </span>
+                </div>
+
+                <p className="orders-card-total">{formatOrderMoney(order.totalAmount)}</p>
+                {isDeliveryOrder(order.tableNumber, order.orderType) ? (
+                  <div className="orders-card-delivery">
+                    <p>
+                      <strong>Cliente:</strong> {order.customerName}
+                    </p>
+                    <p>
+                      <strong>WhatsApp:</strong> {formatPhoneDisplay(order.customerPhone)}
+                    </p>
+                    <p>
+                      <strong>Endereço:</strong> {order.deliveryAddress}
+                    </p>
+                    <p>
+                      <strong>Referência:</strong> {order.deliveryReference || '—'}
+                    </p>
+                  </div>
+                ) : null}
+                {order.observation ? (
+                  <p className="orders-card-obs">
+                    <strong>Obs.:</strong> {order.observation}
+                  </p>
+                ) : null}
+
+                <div className="orders-card-actions">
+                  {!cancelled ? (
+                    <>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-primary"
+                        disabled={busy}
+                        onClick={() => handlePrint(order)}
+                      >
+                        {busy ? 'Aguarde...' : 'Imprimir cupom (2 vias)'}
+                      </button>
+                      {!printed ? (
+                        <button
+                          type="button"
+                          className="admin-btn admin-btn-outline"
+                          disabled={busy}
+                          onClick={() => handleMarkPrinted(order)}
+                        >
+                          Marcar impresso
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="admin-btn admin-btn-ghost"
+                          disabled={busy}
+                          onClick={() => handleMarkPending(order)}
+                        >
+                          Marcar não impresso
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-danger"
+                        disabled={busy}
+                        onClick={() => openCancelModal(order)}
+                      >
+                        Cancelar pedido
+                      </button>
+                    </>
+                  ) : (
+                    <p className="orders-card-cancelled-note">Pedido cancelado — não imprime.</p>
+                  )}
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+
+      <AdminFeedbackModal
+        modal={
+          cancelModal
+            ? {
+                ...cancelModal,
+                onConfirm: confirmCancelOrder,
+              }
+            : null
+        }
+        onClose={() => setCancelModal(null)}
+      />
+      <AdminFeedbackModal modal={successModal} onClose={() => setSuccessModal(null)} />
+    </section>
   )
 }
 
@@ -1316,7 +2074,7 @@ function AdminItemFormFields({
         name="description"
         value={form.description}
         onChange={onChange}
-        placeholder="Descricao"
+        placeholder="Descrição"
         className="field-full"
       />
       <input
@@ -1332,12 +2090,12 @@ function AdminItemFormFields({
       </label>
       {showPizzaSizes ? (
         <div className="pizza-sizes-admin field-full">
-          <span className="field-label">Precos por tamanho (pizzas)</span>
+          <span className="field-label">Preços por tamanho (pizzas)</span>
           <div className="pizza-sizes-admin-grid">
             {PIZZA_SIZE_TEMPLATES.map((template) => (
               <label key={template.id} className="pizza-size-admin-field">
                 <span className="pizza-size-admin-label">
-                  {template.label} ({template.pieces} pedacos)
+                  {template.label} ({template.pieces} pedaços)
                 </span>
                 <div className="price-input-wrap">
                   <span className="price-prefix" aria-hidden="true">
@@ -1349,7 +2107,7 @@ function AdminItemFormFields({
                     value={form.sizePrices?.[template.id] || ''}
                     onChange={(event) => onSizePriceChange(template.id, event.target.value)}
                     placeholder="0,00"
-                    aria-label={`Preco ${template.label}`}
+                    aria-label={`Preço ${template.label}`}
                   />
                 </div>
               </label>
@@ -1373,7 +2131,7 @@ function AdminItemFormFields({
               aria-label="Valor em reais"
             />
           </div>
-          <small className="field-hint">Digite os numeros; o valor formata sozinho (ex: 4990 vira 49,90).</small>
+          <small className="field-hint">Digite só números; o valor formata sozinho.</small>
         </label>
       )}
     </>
@@ -1428,7 +2186,7 @@ function AdminEditItemModal({
             className="admin-edit-modal-close"
             onClick={onClose}
             disabled={isSaving}
-            aria-label="Fechar edicao"
+            aria-label="Fechar edição"
           >
             ×
           </button>
@@ -1445,7 +2203,7 @@ function AdminEditItemModal({
           />
           {form.image && (
             <div className="image-preview image-preview--modal field-full">
-              <p>Pre-visualizacao da foto</p>
+              <p>Pré-visualização da foto</p>
               <img src={form.image} alt="Preview do item" />
             </div>
           )}
@@ -1519,7 +2277,7 @@ function AdminFeedbackModal({ modal, onClose }) {
         </h4>
         <p className="admin-modal-text">{modal.description}</p>
         <div className="admin-modal-actions">
-          {modal.variant === 'confirm' ? (
+          {modal.variant === 'confirm' || modal.variant === 'warning' ? (
             <>
               <button type="button" className="admin-btn admin-btn-ghost" onClick={onClose}>
                 {modal.cancelLabel || 'Cancelar'}
@@ -1534,7 +2292,7 @@ function AdminFeedbackModal({ modal, onClose }) {
             </>
           ) : (
             <button type="button" className="admin-btn admin-btn-primary" onClick={onClose}>
-              Entendi
+              OK
             </button>
           )}
         </div>
@@ -1578,15 +2336,15 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     showModal({
       variant: 'confirm',
       title: 'Excluir categoria?',
-      description: `A categoria "${category.label}" sera removida. Lembre de salvar para aplicar no banco.`,
+      description: `Remover "${category.label}"?`,
       confirmLabel: 'Excluir',
       cancelLabel: 'Cancelar',
       onConfirm: () => {
         removeCategory(category.id)
         showModal({
           variant: 'success',
-          title: 'Categoria removida',
-          description: 'Alteracao feita. Clique em "Salvar categorias" para gravar.',
+          title: 'Removida',
+          description: 'Toque em Salvar categorias para confirmar.',
         })
       },
     })
@@ -1597,8 +2355,8 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     if (!label) {
       showModal({
         variant: 'error',
-        title: 'Nome obrigatorio',
-        description: 'Digite o nome da categoria no campo acima antes de adicionar.',
+        title: 'Nome obrigatório',
+        description: 'Digite o nome da categoria.',
       })
       document.getElementById('new-category-input')?.focus()
       return
@@ -1614,8 +2372,8 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     setOpenCategoryId(id)
     showModal({
       variant: 'success',
-      title: 'Categoria criada',
-      description: `"${label}" foi adicionada. Clique em "Salvar categorias" para gravar no banco.`,
+      title: 'Categoria adicionada',
+      description: 'Salve as categorias para guardar no banco.',
     })
 
     window.requestAnimationFrame(() => {
@@ -1627,12 +2385,11 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 
   const addSubcategory = (categoryId) => {
     const label = String(newSubLabelByCategory[categoryId] || '').trim()
-    const category = categories.find((item) => item.id === categoryId)
     if (!label) {
       showModal({
         variant: 'error',
-        title: 'Nome obrigatorio',
-        description: 'Digite o nome da subcategoria antes de adicionar.',
+        title: 'Nome obrigatório',
+        description: 'Digite o nome da subcategoria.',
       })
       return
     }
@@ -1655,8 +2412,8 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     setNewSubLabelByCategory((current) => ({ ...current, [categoryId]: '' }))
     showModal({
       variant: 'success',
-      title: 'Subcategoria criada',
-      description: `"${label}" adicionada em ${category?.label || 'categoria'}. Salve para gravar.`,
+      title: 'Subcategoria adicionada',
+      description: 'Salve as categorias para guardar no banco.',
     })
   }
 
@@ -1690,15 +2447,15 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     showModal({
       variant: 'confirm',
       title: 'Excluir subcategoria?',
-      description: `"${sub.label}" sera removida de ${category.label}. Salve para gravar no banco.`,
+      description: `Remover "${sub.label}"?`,
       confirmLabel: 'Excluir',
       cancelLabel: 'Cancelar',
       onConfirm: () => {
         removeSubcategory(category.id, sub.id)
         showModal({
           variant: 'success',
-          title: 'Subcategoria removida',
-          description: 'Alteracao feita. Clique em "Salvar categorias" para gravar.',
+          title: 'Removida',
+          description: 'Toque em Salvar categorias para confirmar.',
         })
       },
     })
@@ -1712,14 +2469,13 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       result.ok
         ? {
             variant: 'success',
-            title: 'Categorias salvas',
-            description: 'Todas as categorias e subcategorias foram gravadas no banco.',
+            title: 'Salvo',
+            description: 'Categorias gravadas no banco.',
           }
         : {
             variant: 'warning',
-            title: 'Salvo apenas no navegador',
-            description:
-              'As alteracoes ficaram no dispositivo. Verifique se a API esta rodando e tente salvar de novo.',
+            title: 'API offline',
+            description: 'Não foi possível salvar no banco. Tente de novo.',
           },
     )
   }
@@ -1728,7 +2484,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     <section className="categories-admin">
       <div className="categories-admin-intro">
         <h3>Categorias e subcategorias</h3>
-        <p>Monte o cardapio: categoria principal (ex: Pizzas) e subcategorias (ex: Doces, Premium).</p>
+        <p>Categoria principal (ex.: Pizzas) e subcategorias (ex.: Doces, Premium).</p>
       </div>
 
       <form
@@ -1877,10 +2633,10 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 }
 
 const ADMIN_SECTIONS = [
-  { id: 'novo', label: 'Novo item', hint: 'Cadastrar produto' },
-  { id: 'itens', label: 'Itens', hint: 'Lista do cardapio' },
-  { id: 'categorias', label: 'Categorias', hint: 'Grupos do menu' },
-  { id: 'qrcodes', label: 'QR Codes', hint: 'Mesas e impressao' },
+  { id: 'novo', label: 'Novo item', hint: 'Cadastrar' },
+  { id: 'itens', label: 'Itens', hint: 'Ver e editar' },
+  { id: 'categorias', label: 'Categorias', hint: 'Grupos' },
+  { id: 'qrcodes', label: 'QR Codes', hint: 'Mesas' },
 ]
 
 function AdminItemPricing({ item }) {
@@ -1901,13 +2657,69 @@ function AdminItemPricing({ item }) {
 
   return (
     <p className="admin-item-price">
-      <span className="admin-item-price-label">Preco</span>
+      <span className="admin-item-price-label">Preço</span>
       <span className="admin-item-price-value">{formatBRL(item.price)}</span>
     </p>
   )
 }
 
+function AdminImagePreviewModal({ imageSrc, title, onClose }) {
+  useEffect(() => {
+    if (!imageSrc) return undefined
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [imageSrc, onClose])
+
+  if (!imageSrc) return null
+
+  return createPortal(
+    <div className="admin-image-modal-backdrop" onClick={onClose}>
+      <div
+        className="admin-image-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-image-modal-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="admin-image-modal-header">
+          <h4 id="admin-image-modal-title">{title}</h4>
+          <button
+            type="button"
+            className="admin-image-modal-close"
+            onClick={onClose}
+            aria-label="Fechar foto"
+          >
+            ×
+          </button>
+        </header>
+        <div className="admin-image-modal-body">
+          <img src={imageSrc} alt={`Foto de ${title}`} className="admin-image-modal-img" />
+        </div>
+        <footer className="admin-image-modal-footer">
+          <button type="button" className="admin-btn admin-btn-primary" onClick={onClose}>
+            Fechar
+          </button>
+        </footer>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 function AdminMenuItemRow({ item, onEdit, onRemove }) {
+  const [showImagePreview, setShowImagePreview] = useState(false)
+
   return (
     <article className="admin-item">
       <div className="admin-item-body">
@@ -1917,9 +2729,13 @@ function AdminMenuItemRow({ item, onEdit, onRemove }) {
             <dt>Imagem</dt>
             <dd>
               {item.image ? (
-                <a href={item.image} target="_blank" rel="noreferrer">
+                <button
+                  type="button"
+                  className="admin-view-photo-btn"
+                  onClick={() => setShowImagePreview(true)}
+                >
                   Ver foto
-                </a>
+                </button>
               ) : (
                 <span className="admin-item-muted">Sem foto</span>
               )}
@@ -1937,6 +2753,12 @@ function AdminMenuItemRow({ item, onEdit, onRemove }) {
           Remover
         </button>
       </div>
+
+      <AdminImagePreviewModal
+        imageSrc={showImagePreview ? item.image : null}
+        title={item.name}
+        onClose={() => setShowImagePreview(false)}
+      />
     </article>
   )
 }
@@ -1946,7 +2768,7 @@ function AdminItemsCatalog({ groupedMenu, openItemsCategoryId, onToggleCategory,
     <section className="admin-items-catalog admin-tab-panel-inner">
       <header className="admin-panel-header">
         <h3>Itens cadastrados</h3>
-        <p>Lista por categoria. Abra cada bloco para ver precos, tamanhos e acoes.</p>
+        <p>Lista por categoria. Abra cada bloco para ver preços e editar.</p>
       </header>
 
       <div className="category-accordion admin-menu-accordion">
@@ -2058,7 +2880,7 @@ function AdminTablesSection({ tables, tableNumber, setTableNumber, onAddTable, o
     <section className="tables-admin admin-tab-panel-inner">
       <header className="admin-panel-header">
         <h3>QR Codes das mesas</h3>
-        <p>Primeiro cadastre as mesas abaixo. Depois abra a pagina de QR para imprimir um codigo por mesa.</p>
+        <p>Cadastre as mesas e abra a página de QR para imprimir.</p>
       </header>
 
       <form onSubmit={onAddTable} className="table-form">
@@ -2067,19 +2889,19 @@ function AdminTablesSection({ tables, tableNumber, setTableNumber, onAddTable, o
           min="1"
           value={tableNumber}
           onChange={(event) => setTableNumber(event.target.value)}
-          placeholder="Numero da mesa"
+          placeholder="Número da mesa"
         />
         <button type="submit" className="admin-btn admin-btn-primary">
           Adicionar mesa
         </button>
         <Link to="/qrcodes" className="admin-btn admin-btn-outline admin-link-btn">
-          Abrir pagina de QR Codes
+          Abrir página de QR Codes
         </Link>
       </form>
 
       <div className="table-list">
         {tables.length === 0 ? (
-          <p className="admin-items-empty">Nenhuma mesa cadastrada ainda.</p>
+          <p className="admin-items-empty">Nenhuma mesa cadastrada.</p>
         ) : (
           tables.map((table) => (
             <article key={table} className="table-item">
@@ -2201,8 +3023,8 @@ function AdminPage({
       return {
         error: {
           variant: 'error',
-          title: 'Nome obrigatorio',
-          description: 'Informe o nome do item para continuar.',
+          title: 'Nome obrigatório',
+          description: 'Preencha o nome do item.',
         },
       }
     }
@@ -2210,8 +3032,8 @@ function AdminPage({
       return {
         error: {
           variant: 'error',
-          title: 'Descricao obrigatoria',
-          description: 'Informe a descricao do item para continuar.',
+          title: 'Descrição obrigatória',
+          description: 'Preencha a descrição do item.',
         },
       }
     }
@@ -2231,8 +3053,8 @@ function AdminPage({
         return {
           error: {
             variant: 'error',
-            title: 'Precos dos tamanhos',
-            description: 'Informe preco valido para Broto, Media e Grande.',
+            title: 'Preços incompletos',
+            description: 'Preencha Broto, Média e Grande.',
           },
         }
       }
@@ -2251,8 +3073,8 @@ function AdminPage({
       return {
         error: {
           variant: 'error',
-          title: 'Preco invalido',
-          description: 'Informe um preco valido (ex: 49,90).',
+          title: 'Preço inválido',
+          description: 'Use um valor válido (ex.: 49,90).',
         },
       }
     }
@@ -2279,18 +3101,16 @@ function AdminPage({
       await createMenuItem(validation.payload)
       setItemModal({
         variant: 'success',
-        title: 'Item cadastrado',
-        description: `"${validation.payload.name}" foi salvo no banco com sucesso.`,
+        title: 'Salvo',
+        description: `"${validation.payload.name}" foi cadastrado.`,
       })
       resetNewItemForm()
       setAdminTab('itens')
     } catch (error) {
       setItemModal({
         variant: 'error',
-        title: 'Erro ao salvar',
-        description:
-          error?.message ||
-          'Nao foi possivel gravar no banco. Verifique se a API esta rodando.',
+        title: 'Não salvou',
+        description: formatApiError(error, 'Não foi possível salvar. Tente de novo.'),
       })
     } finally {
       setIsSavingNewItem(false)
@@ -2311,16 +3131,14 @@ function AdminPage({
       closeEditModal()
       setItemModal({
         variant: 'success',
-        title: 'Item atualizado',
-        description: `"${validation.payload.name}" foi alterado e salvo no banco.`,
+        title: 'Atualizado',
+        description: `"${validation.payload.name}" foi salvo.`,
       })
     } catch (error) {
       setItemModal({
         variant: 'error',
-        title: 'Erro ao atualizar',
-        description:
-          error?.message ||
-          'Nao foi possivel gravar no banco. Verifique se a API esta rodando.',
+        title: 'Não atualizou',
+        description: formatApiError(error, 'Não foi possível atualizar. Tente de novo.'),
       })
     } finally {
       setIsSavingEditItem(false)
@@ -2332,14 +3150,14 @@ function AdminPage({
       await deleteMenuItem(id)
       setItemModal({
         variant: 'success',
-        title: 'Item removido',
-        description: `"${itemName}" foi excluido do cardapio.`,
+        title: 'Removido',
+        description: `"${itemName}" saiu do cardápio.`,
       })
-    } catch {
+    } catch (error) {
       setItemModal({
         variant: 'error',
-        title: 'Erro ao remover',
-        description: 'Nao foi possivel remover o produto. Tente novamente.',
+        title: 'Não removeu',
+        description: formatApiError(error, 'Não foi possível remover. Tente de novo.'),
       })
     }
   }
@@ -2364,11 +3182,26 @@ function AdminPage({
     <section className="admin">
       <header className="admin-page-header">
         <h2>Painel Admin</h2>
-        <p>Escolha uma secao abaixo: cadastro, lista, categorias ou mesas.</p>
-        {menuSyncMessage && <p className="menu-sync-message">{menuSyncMessage}</p>}
+        <p>Use as abas: novo item, itens, categorias ou QR Codes.</p>
+        {menuSyncMessage && (
+          <p
+            className={`menu-sync-message${
+              menuSyncMessage.includes('Sem conexão') ? ' menu-sync-message--warn' : ''
+            }`}
+          >
+            {menuSyncMessage}
+            {menuSyncMessage.includes('Sem conexão') && (
+              <span className="menu-sync-message-hint">
+                {' '}
+                Rode a API: <code>cd backend && npm run dev</code> (ou na raiz:{' '}
+                <code>npm run dev:all</code>).
+              </span>
+            )}
+          </p>
+        )}
       </header>
 
-      <nav className="admin-tabs" role="tablist" aria-label="Secoes do admin">
+      <nav className="admin-tabs" role="tablist" aria-label="Seções do admin">
         {ADMIN_SECTIONS.map((section) => (
           <button
             key={section.id}
@@ -2399,7 +3232,7 @@ function AdminPage({
           <div role="tabpanel" className="admin-tab-panel">
             <header className="admin-panel-header">
               <h3>Novo item</h3>
-              <p>Preencha os dados e salve para adicionar ao cardapio.</p>
+              <p>Preencha e salve para adicionar ao cardápio.</p>
             </header>
             <form onSubmit={handleNewItemSubmit} className="admin-form">
               <AdminItemFormFields
@@ -2424,7 +3257,7 @@ function AdminPage({
 
             {newItemForm.image && (
               <div className="image-preview">
-                <p>Pre-visualizacao da foto</p>
+                <p>Pré-visualização da foto</p>
                 <img src={newItemForm.image} alt="Preview do item" />
               </div>
             )}

@@ -3,11 +3,7 @@ import dotenv from 'dotenv'
 import express from 'express'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import {
-  loadCategoriesFromDb,
-  normalizeCategories,
-  saveCategoriesToDb,
-} from './categories.js'
+import { loadCategoriesFromDb, saveCategoriesToDb } from './categories.js'
 import { query } from './db.js'
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
 
@@ -161,19 +157,77 @@ app.get('/health', async (_req, res) => {
   }
 })
 
+function parseTableNumberFromBody(value) {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) return null
+  return parsed
+}
+
+function normalizePhoneDigits(value) {
+  let digits = String(value ?? '').replace(/\D/g, '')
+  if (digits.length >= 12 && digits.startsWith('55')) return digits
+  if (digits.length >= 10 && digits.length <= 11) return `55${digits}`
+  return digits
+}
+
+const ORDER_RETURNING = `id, table_number AS "tableNumber", order_type AS "orderType",
+  customer_name AS "customerName", customer_phone AS "customerPhone",
+  delivery_address AS "deliveryAddress", delivery_reference AS "deliveryReference",
+  observation, total_amount AS "totalAmount", status, created_at AS "createdAt"`
+
 app.post('/orders', async (req, res) => {
-  const { mesa, observation, items, totalAmount } = req.body
+  const { observation, items, totalAmount } = req.body
+  const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
+  const orderType = tableNumber ? 'table' : 'delivery'
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: 'Pedido precisa ter itens' })
   }
 
+  let customerName = ''
+  let customerPhone = ''
+  let deliveryAddress = ''
+  let deliveryReference = ''
+
+  if (orderType === 'delivery') {
+    customerName = String(req.body.customerName ?? '').trim()
+    customerPhone = normalizePhoneDigits(req.body.customerPhone)
+    deliveryAddress = String(req.body.deliveryAddress ?? '').trim()
+    deliveryReference = String(req.body.deliveryReference ?? '').trim()
+
+    if (!customerName) {
+      return res.status(400).json({ message: 'Informe o nome para delivery' })
+    }
+    if (customerPhone.length < 12) {
+      return res.status(400).json({ message: 'Informe um WhatsApp valido com DDD' })
+    }
+    if (!deliveryAddress) {
+      return res.status(400).json({ message: 'Informe o endereco de entrega' })
+    }
+    if (!deliveryReference) {
+      return res.status(400).json({ message: 'Informe o ponto de referencia' })
+    }
+  }
+
   try {
     const orderResult = await query(
-      `INSERT INTO orders (table_number, observation, total_amount)
-       VALUES ($1, $2, $3)
-       RETURNING id, table_number AS "tableNumber", observation, total_amount AS "totalAmount", created_at AS "createdAt"`,
-      [mesa ?? null, observation ?? '', Number(totalAmount ?? 0)],
+      `INSERT INTO orders (
+         table_number, order_type, customer_name, customer_phone,
+         delivery_address, delivery_reference, observation, total_amount
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING ${ORDER_RETURNING}`,
+      [
+        tableNumber,
+        orderType,
+        customerName,
+        customerPhone,
+        deliveryAddress,
+        deliveryReference,
+        observation ?? '',
+        Number(totalAmount ?? 0),
+      ],
     )
 
     const order = orderResult.rows[0]
@@ -203,13 +257,80 @@ app.post('/orders', async (req, res) => {
   }
 })
 
-app.get('/orders', async (_req, res) => {
+function parseDateQuery(value, fallback) {
+  const raw = String(value || fallback || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback
+  return raw
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+app.get('/orders/report', async (req, res) => {
+  const today = todayIsoDate()
+  const from = parseDateQuery(req.query.from, today)
+  const to = parseDateQuery(req.query.to, from)
+
   try {
     const result = await query(
-      `SELECT id, table_number AS "tableNumber", observation, total_amount AS "totalAmount", status, created_at AS "createdAt"
+      `SELECT ${ORDER_RETURNING}
+       FROM orders
+       WHERE created_at::date >= $1::date
+         AND created_at::date <= $2::date
+       ORDER BY created_at DESC`,
+      [from, to],
+    )
+
+    const orders = result.rows
+    const soldOrders = orders.filter((order) => order.status !== 'cancelled')
+    const cancelledOrders = orders.filter((order) => order.status === 'cancelled')
+
+    const sumTotal = (list) =>
+      list.reduce((acc, order) => acc + (Number(order.totalAmount) || 0), 0)
+
+    return res.json({
+      from,
+      to,
+      summary: {
+        soldCount: soldOrders.length,
+        soldTotal: sumTotal(soldOrders),
+        cancelledCount: cancelledOrders.length,
+        cancelledTotal: sumTotal(cancelledOrders),
+      },
+      orders,
+      soldOrders,
+      cancelledOrders,
+    })
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao gerar relatorio', detail: error.message })
+  }
+})
+
+app.get('/orders', async (req, res) => {
+  const from = req.query.from
+  const to = req.query.to
+
+  try {
+    if (from && to) {
+      const fromDate = parseDateQuery(from, todayIsoDate())
+      const toDate = parseDateQuery(to, fromDate)
+      const result = await query(
+        `SELECT ${ORDER_RETURNING}
+         FROM orders
+         WHERE created_at::date >= $1::date
+           AND created_at::date <= $2::date
+         ORDER BY created_at DESC`,
+        [fromDate, toDate],
+      )
+      return res.json(result.rows)
+    }
+
+    const result = await query(
+      `SELECT ${ORDER_RETURNING}
        FROM orders
        ORDER BY created_at DESC
-       LIMIT 100`,
+       LIMIT 200`,
     )
     res.json(result.rows)
   } catch (error) {
@@ -245,7 +366,8 @@ app.patch('/orders/:id/status', async (req, res) => {
     return res.status(400).json({ message: 'ID invalido' })
   }
 
-  if (!['pending', 'preparing', 'done', 'cancelled'].includes(status)) {
+  const allowed = ['pending', 'printed', 'preparing', 'done', 'cancelled']
+  if (!allowed.includes(status)) {
     return res.status(400).json({ message: 'Status invalido' })
   }
 
@@ -254,7 +376,7 @@ app.patch('/orders/:id/status', async (req, res) => {
       `UPDATE orders
        SET status = $2
        WHERE id = $1
-       RETURNING id, status`,
+       RETURNING ${ORDER_RETURNING}`,
       [orderId, status],
     )
 
@@ -270,8 +392,19 @@ app.patch('/orders/:id/status', async (req, res) => {
 
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.resolve(__dirname, '../../dist')
-  app.use(express.static(distPath))
+  app.use(
+    express.static(distPath, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        }
+      },
+    }),
+  )
   app.get(/^(?!\/(health|categories|menu-items|orders)(\/|$)).*/, (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
     res.sendFile(path.join(distPath, 'index.html'))
   })
 }

@@ -75,7 +75,7 @@ export function buildMenuItemPayload(body) {
     const sizes = normalizePizzaSizes(body.sizes, body.price)
     const invalid = sizes.find((size) => !size.price || size.price <= 0)
     if (invalid) {
-      return { error: 'Informe preco valido para Broto, Media e Grande.' }
+      return { error: 'Informe preço válido para Broto, Média e Grande.' }
     }
 
     const price = Math.min(...sizes.map((size) => size.price))
@@ -94,7 +94,7 @@ export function buildMenuItemPayload(body) {
 
   const price = Number(body.price)
   if (!name || Number.isNaN(price) || price <= 0) {
-    return { error: 'Dados invalidos para o produto' }
+    return { error: 'Dados inválidos do produto' }
   }
 
   return {

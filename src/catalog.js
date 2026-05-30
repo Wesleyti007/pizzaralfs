@@ -1,3 +1,46 @@
+export const MESA_SESSION_KEY = 'pizza-ralfs-active-mesa'
+
+export function parseTableNumber(raw) {
+  if (raw === null || raw === undefined || raw === '') return null
+  const parsed = Number(String(raw).trim())
+  if (!Number.isInteger(parsed) || parsed <= 0) return null
+  return parsed
+}
+
+export function persistTableNumber(mesa) {
+  if (mesa) {
+    sessionStorage.setItem(MESA_SESSION_KEY, String(mesa))
+  }
+}
+
+export function clearTableNumberSession() {
+  sessionStorage.removeItem(MESA_SESSION_KEY)
+}
+
+/**
+ * Mesa só vale com ?mesa= na URL (QR da mesa).
+ * Sem esse parâmetro = cardápio delivery; não reutiliza mesa antiga da sessão.
+ */
+export function resolveActiveTableNumber(searchParams) {
+  const fromUrl = parseTableNumber(searchParams?.get?.('mesa'))
+  if (fromUrl) {
+    persistTableNumber(fromUrl)
+    return fromUrl
+  }
+  clearTableNumberSession()
+  return null
+}
+
+export function catalogPathWithMesa(pathname, mesa) {
+  const base = pathname.startsWith('/') ? pathname : `/${pathname}`
+  if (!mesa) return base
+  const [path, query = ''] = base.split('?')
+  const params = new URLSearchParams(query)
+  params.set('mesa', String(mesa))
+  const qs = params.toString()
+  return qs ? `${path}?${qs}` : path
+}
+
 export const DEFAULT_CATEGORIES = [
   {
     id: 'pizzas',
@@ -178,7 +221,7 @@ export function groupMenuItemsForAdmin(menuItems, categories) {
 
 export const PIZZA_SIZE_TEMPLATES = [
   { id: 'broto', label: 'Broto', pieces: 4 },
-  { id: 'media', label: 'Media', pieces: 6 },
+  { id: 'media', label: 'Média', pieces: 6 },
   { id: 'grande', label: 'Grande', pieces: 8 },
 ]
 
@@ -223,25 +266,108 @@ export function getPizzaSizePrice(menuItem, sizeId) {
   return Number.isFinite(price) && price > 0 ? price : 0
 }
 
-/** Meia a meia: cobra o valor do sabor mais caro no tamanho escolhido. */
+/** Quantos sabores o cliente pode combinar neste tamanho. */
+export function getMaxFlavorsForSize(sizeId) {
+  if (sizeId === 'broto') return 1
+  if (sizeId === 'media') return 2
+  if (sizeId === 'grande') return 4
+  return 1
+}
+
+export function getPiecesForSize(sizeId, sizes = []) {
+  const found = sizes.find((entry) => entry.id === sizeId)
+  if (found?.pieces) return found.pieces
+  const template = PIZZA_SIZE_TEMPLATES.find((entry) => entry.id === sizeId)
+  return template?.pieces ?? 4
+}
+
+export function normalizeFlavorIdList(ids) {
+  const seen = new Set()
+  const list = []
+  for (const raw of ids || []) {
+    const id = String(raw ?? '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    list.push(id)
+  }
+  return list
+}
+
+export function multiFlavorCartKey(flavorIds, sizeId) {
+  const sorted = [...normalizeFlavorIdList(flavorIds)].sort()
+  return `${sorted.join('+')}:${sizeId || ''}`
+}
+
+/** Vários sabores: cobra o valor do sabor mais caro no tamanho. */
+export function computeMultiFlavorPrice(pizzaItemsById, flavorIds, sizeId) {
+  const prices = normalizeFlavorIdList(flavorIds).map((id) => {
+    const item = pizzaItemsById.get(id)
+    return item ? getPizzaSizePrice(item, sizeId) : 0
+  })
+  return prices.length ? Math.max(...prices) : 0
+}
+
+/** Meia a meia (2 sabores): compatibilidade. */
 export function computeHalfAndHalfPrice(primary, secondary, sizeId) {
-  const priceA = getPizzaSizePrice(primary, sizeId)
-  const priceB = getPizzaSizePrice(secondary, sizeId)
-  return Math.max(priceA, priceB)
+  return computeMultiFlavorPrice(
+    new Map([
+      [String(primary?.id), primary],
+      [String(secondary?.id), secondary],
+    ]),
+    [primary?.id, secondary?.id],
+    sizeId,
+  )
 }
 
 export function halfAndHalfPairKey(idA, idB) {
-  const a = String(idA ?? '')
-  const b = String(idB ?? '')
-  return a < b ? `${a}:${b}` : `${b}:${a}`
+  return multiFlavorCartKey([idA, idB], '')
 }
 
-export function buildHalfAndHalfCartName(primary, secondary, sizeLabel) {
-  const base = `Meia ${primary.name} / Meia ${secondary.name}`
+export function buildMultiFlavorCartName(flavorItems, sizeLabel) {
+  const names = flavorItems.map((item) => item?.name).filter(Boolean)
+  if (!names.length) return 'Pizza'
+
+  let base = names[0]
+  if (names.length === 2) {
+    base = `Meia ${names[0]} / Meia ${names[1]}`
+  } else if (names.length > 2) {
+    base = names.join(' + ')
+  }
+
   if (!sizeLabel) return base
   const shortSize = String(sizeLabel).split(' (')[0]
   return `${base} — ${shortSize}`
 }
+
+export function buildHalfAndHalfCartName(primary, secondary, sizeLabel) {
+  return buildMultiFlavorCartName([primary, secondary], sizeLabel)
+}
+
+/** Distribui índices de sabor: fatias do mesmo sabor ficam juntas no círculo. */
+export function distributeFlavorSlices(pieceCount, flavorCount) {
+  if (flavorCount <= 0 || pieceCount <= 0) return []
+
+  const sliceOwners = []
+  for (let flavorIndex = 0; flavorIndex < flavorCount; flavorIndex += 1) {
+    const extra = flavorIndex < pieceCount % flavorCount ? 1 : 0
+    const count = Math.floor(pieceCount / flavorCount) + extra
+    for (let slice = 0; slice < count; slice += 1) {
+      sliceOwners.push(flavorIndex)
+    }
+  }
+  return sliceOwners
+}
+
+export const PIZZA_FLAVOR_COLORS = [
+  '#c45c26',
+  '#8b1e1e',
+  '#d4a574',
+  '#5c7a29',
+  '#b8860b',
+  '#6b4423',
+  '#c9a227',
+  '#7a4b2a',
+]
 
 export function formatPriceRangeLabel(item) {
   if (!itemHasSizes(item)) {
