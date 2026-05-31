@@ -142,7 +142,7 @@ Todos devem estar `running`.
 2. Deve abrir o cardapio (loader e depois o menu).
 3. API: `https://seudominio.com.br/health` — deve retornar JSON ok.
 
-Admin: `https://seudominio.com.br/admin/ralfs`
+Admin: `https://seudominio.com.br/admin/ralfs` ( `/admin` e `/acesso-admin-ralfs-2026` redirecionam para lá )
 
 ---
 

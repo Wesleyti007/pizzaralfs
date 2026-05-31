@@ -3,6 +3,13 @@
 }
 
 pizzaralfs.com.br {
+	encode gzip zstd
+
+	# Rotas antigas do admin → única URL do painel
+	redir /admin /admin/ralfs 301
+	redir /admin/ /admin/ralfs 301
+	redir /acesso-admin-ralfs-2026 /admin/ralfs 301
+
 	reverse_proxy app:3001
 }
 

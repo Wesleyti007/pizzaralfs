@@ -43,6 +43,10 @@ done
 echo "==> Status dos containers"
 ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/deploy && docker compose ps"
 
+echo "==> Conferir versao publicada"
+ssh "${VPS_USER}@${VPS_HOST}" "curl -s https://pizzaralfs.com.br/health || curl -s http://127.0.0.1:3001/health" || true
+
 echo ""
-echo "Pronto. Teste: https://pizzaralfs.com.br/health"
+echo "Pronto. Teste: https://pizzaralfs.com.br/health  (release deve ser 20260531)"
 echo "Admin:  https://pizzaralfs.com.br/admin/ralfs"
+echo "        usuario admin | senha definida em deploy/.env (ADMIN_PASSWORD)"

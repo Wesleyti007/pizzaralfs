@@ -256,12 +256,18 @@ app.delete('/menu-items/:id', async (req, res) => {
   }
 })
 
+const APP_RELEASE = process.env.APP_RELEASE || 'dev'
+
 app.get('/health', async (_req, res) => {
   try {
     await query('SELECT 1')
-    res.json({ ok: true, message: 'API e banco conectados' })
+    res.json({
+      ok: true,
+      message: 'API e banco conectados',
+      release: APP_RELEASE,
+    })
   } catch {
-    res.status(500).json({ ok: false, message: 'Falha na conexao com banco' })
+    res.status(500).json({ ok: false, message: 'Falha na conexao com banco', release: APP_RELEASE })
   }
 })
 
@@ -647,6 +653,14 @@ app.patch('/orders/:id/status', async (req, res) => {
 
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.resolve(__dirname, '../../dist')
+
+  const redirectLegacyAdmin = (_req, res) => {
+    res.redirect(301, '/admin/ralfs')
+  }
+  app.get('/admin', redirectLegacyAdmin)
+  app.get('/admin/', redirectLegacyAdmin)
+  app.get('/acesso-admin-ralfs-2026', redirectLegacyAdmin)
+
   app.use(
     express.static(distPath, {
       setHeaders(res, filePath) {

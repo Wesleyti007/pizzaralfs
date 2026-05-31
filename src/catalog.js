@@ -1,5 +1,10 @@
 export const MESA_SESSION_KEY = 'pizza-ralfs-active-mesa'
 
+/** Item tem imagem exibível no cardápio (ignora string vazia ou só espaços). */
+export function hasMenuItemImage(image) {
+  return String(image ?? '').trim().length > 0
+}
+
 export function parseTableNumber(raw) {
   if (raw === null || raw === undefined || raw === '') return null
   const parsed = Number(String(raw).trim())

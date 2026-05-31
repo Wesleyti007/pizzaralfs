@@ -77,6 +77,7 @@ import {
   normalizeFlavorIdList,
   parsePriceInput,
   groupMenuItemsForAdmin,
+  hasMenuItemImage,
   isPizzaCategory,
   itemHasSizes,
   normalizeCategories,
@@ -102,10 +103,11 @@ const AUTH_STORAGE_KEY = 'pizza-ralfs-auth'
 const ADMIN_PATH = '/admin/ralfs'
 const ADMIN_USER = String(import.meta.env.VITE_ADMIN_USER || 'admin').trim()
 const ADMIN_PASSWORD = String(import.meta.env.VITE_ADMIN_PASSWORD || '25364758@Cd').trim()
-const HOME_SPLASH_MS = 5000
-const HOME_SPLASH_FADE_MS = 400
+const HOME_SPLASH_MIN_MS = 700
+const HOME_SPLASH_MAX_MS = 2200
+const HOME_SPLASH_FADE_MS = 280
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
-const LOGO_URL = '/logo-ralfs.png'
+const LOGO_URL = '/logo-ralfs-web.png'
 
 const CatalogSplashContext = createContext('hidden')
 
@@ -380,6 +382,7 @@ function App() {
     () => localStorage.getItem(AUTH_STORAGE_KEY) === 'true',
   )
   const [menuSyncMessage, setMenuSyncMessage] = useState('')
+  const [catalogBootstrapped, setCatalogBootstrapped] = useState(false)
   const [deliverySettings, setDeliverySettings] = useState(() => ({ ...DEFAULT_DELIVERY_SETTINGS }))
 
   const saveTables = (items) => {
@@ -389,23 +392,28 @@ function App() {
   }
 
   useEffect(() => {
+    let cancelled = false
+    const menuQuery = isAuthenticated ? '?all=1' : ''
+
     const loadDataFromApi = async () => {
       let nextCategories = categories
 
       try {
-        const categoriesResponse = await fetch(`${API_BASE_URL}/categories`)
+        const [categoriesResponse, settingsResponse, menuResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/categories`),
+          fetch(`${API_BASE_URL}/settings`),
+          fetch(`${API_BASE_URL}/menu-items${menuQuery}`),
+        ])
+
+        if (cancelled) return
+
         if (categoriesResponse.ok) {
           const apiCategories = await categoriesResponse.json()
           nextCategories = normalizeCategories(apiCategories)
           setCategories(nextCategories)
           localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(nextCategories))
         }
-      } catch {
-        // mantem categorias locais
-      }
 
-      try {
-        const settingsResponse = await fetch(`${API_BASE_URL}/settings`)
         if (settingsResponse.ok) {
           const settings = await settingsResponse.json()
           setDeliverySettings({
@@ -415,31 +423,38 @@ function App() {
             deliveryPricePerKm: Math.max(0, Number(settings.deliveryPricePerKm) || 0),
           })
         }
-      } catch {
-        // mantém taxa local
-      }
 
-      try {
-        const response = await fetch(`${API_BASE_URL}/menu-items?all=1`)
-        if (!response.ok) {
+        if (menuResponse.ok) {
+          const items = await menuResponse.json()
+          if (Array.isArray(items) && items.length > 0) {
+            const normalizedItems = normalizeMenuItems(items, nextCategories)
+            setMenuItems(normalizedItems)
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedItems))
+            setMenuSyncMessage('')
+          } else {
+            setMenuSyncMessage('Nenhum produto na API. Usando cardápio local.')
+          }
+        } else {
           throw new Error('Falha ao carregar produtos')
         }
-        const items = await response.json()
-        if (Array.isArray(items) && items.length > 0) {
-          const normalizedItems = normalizeMenuItems(items, nextCategories)
-          setMenuItems(normalizedItems)
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedItems))
-          setMenuSyncMessage('')
-        } else {
-          setMenuSyncMessage('Nenhum produto na API. Usando cardápio local.')
-        }
       } catch {
-        setMenuSyncMessage('Sem conexão com a API. Usando cardápio local.')
+        if (!cancelled) {
+          setMenuSyncMessage('Sem conexão com a API. Usando cardápio local.')
+        }
+      } finally {
+        if (!cancelled) {
+          setCatalogBootstrapped(true)
+        }
       }
     }
 
+    setCatalogBootstrapped(false)
     loadDataFromApi()
-  }, [])
+
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated])
 
   const saveDeliverySettings = async (settingsPayload) => {
     const response = await fetch(`${API_BASE_URL}/settings`, {
@@ -596,7 +611,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      <CatalogSplashProvider>
+      <CatalogSplashProvider catalogBootstrapped={catalogBootstrapped}>
       <CatalogReceiptProvider>
       <div className="app">
         <BrandHeader isAuthenticated={isAuthenticated} onLogout={handleLogout} />
@@ -636,6 +651,12 @@ function App() {
                 />
               }
             />
+            <Route path="/admin" element={<Navigate to={ADMIN_PATH} replace />} />
+            <Route path="/admin/" element={<Navigate to={ADMIN_PATH} replace />} />
+            <Route
+              path="/acesso-admin-ralfs-2026"
+              element={<Navigate to={ADMIN_PATH} replace />}
+            />
             <Route
               path={ADMIN_PATH}
               element={
@@ -665,6 +686,7 @@ function App() {
             <Route path="/relatorios" element={<ReportsPage />} />
             <Route path="/qrcodes" element={<QrCodesPage tables={tables} />} />
             </Route>
+            <Route path="*" element={<UnknownRoutePage />} />
           </Routes>
         </main>
       </div>
@@ -686,7 +708,7 @@ function BrandHeader({ isAuthenticated, onLogout }) {
   return (
     <header className="brand-header">
       <Link to={catalogTo} className="brand-header-logo">
-        <img src={LOGO_URL} alt="Pizzas Ralf's" />
+        <img src={LOGO_URL} alt="Pizzas Ralf's" width={120} height={120} decoding="async" />
       </Link>
       <div className="brand-header-text">
         <p className="brand-header-kicker">Sabor tradicional</p>
@@ -739,11 +761,12 @@ function CatalogReceiptProvider({ children }) {
   )
 }
 
-function CatalogSplashProvider({ children }) {
+function CatalogSplashProvider({ children, catalogBootstrapped }) {
   const location = useLocation()
   const isCatalog = isCatalogRoute(location.pathname)
   const [splashPhase, setSplashPhase] = useState('hidden')
   const splashRunRef = useRef(0)
+  const splashStartedRef = useRef(0)
 
   useEffect(() => {
     if (!isCatalog) {
@@ -753,8 +776,12 @@ function CatalogSplashProvider({ children }) {
     }
 
     const runId = ++splashRunRef.current
+    splashStartedRef.current = Date.now()
     setSplashPhase('visible')
     document.body.classList.add('home-splash-active')
+
+    let hideTimer = null
+    let doneTimer = null
 
     const finishSplash = () => {
       if (runId !== splashRunRef.current) return
@@ -762,24 +789,37 @@ function CatalogSplashProvider({ children }) {
       document.body.classList.remove('home-splash-active')
     }
 
-    const hideTimer = window.setTimeout(() => {
+    const startHide = () => {
       if (runId !== splashRunRef.current) return
       setSplashPhase('hiding')
-    }, HOME_SPLASH_MS)
-    const doneTimer = window.setTimeout(finishSplash, HOME_SPLASH_MS + HOME_SPLASH_FADE_MS)
+      doneTimer = window.setTimeout(finishSplash, HOME_SPLASH_FADE_MS)
+    }
+
+    const scheduleHide = () => {
+      if (hideTimer) window.clearTimeout(hideTimer)
+      const elapsed = Date.now() - splashStartedRef.current
+      let delay = HOME_SPLASH_MAX_MS - elapsed
+      if (catalogBootstrapped) {
+        delay = Math.min(delay, Math.max(0, HOME_SPLASH_MIN_MS - elapsed))
+      }
+      hideTimer = window.setTimeout(startHide, Math.max(0, delay))
+    }
+
+    scheduleHide()
+
     const safetyTimer = window.setTimeout(
       finishSplash,
-      HOME_SPLASH_MS + HOME_SPLASH_FADE_MS + 2000,
+      HOME_SPLASH_MAX_MS + HOME_SPLASH_FADE_MS + 1500,
     )
 
     return () => {
       splashRunRef.current += 1
-      window.clearTimeout(hideTimer)
-      window.clearTimeout(doneTimer)
+      if (hideTimer) window.clearTimeout(hideTimer)
+      if (doneTimer) window.clearTimeout(doneTimer)
       window.clearTimeout(safetyTimer)
       document.body.classList.remove('home-splash-active')
     }
-  }, [isCatalog])
+  }, [isCatalog, catalogBootstrapped])
 
   return (
     <CatalogSplashContext.Provider value={splashPhase}>
@@ -794,6 +834,27 @@ function ProtectedRoute({ isAuthenticated }) {
     return <Navigate to={ADMIN_PATH} replace />
   }
   return <Outlet />
+}
+
+function UnknownRoutePage() {
+  const location = useLocation()
+
+  return (
+    <section className="login-page unknown-route-page">
+      <h2>Página não encontrada</h2>
+      <p className="unknown-route-path">
+        Endereço: <code>{location.pathname}</code>
+      </p>
+      <p>
+        O painel admin fica em <strong>{ADMIN_PATH}</strong>. URLs antigas (/admin, /acesso-admin-ralfs-2026)
+        redirecionam automaticamente após atualizar o site.
+      </p>
+      <p className="unknown-route-links">
+        <Link to={ADMIN_PATH}>Ir para {ADMIN_PATH}</Link>
+        <Link to="/">Cardápio</Link>
+      </p>
+    </section>
+  )
 }
 
 function LoginPage({ onLogin }) {
@@ -1047,7 +1108,15 @@ function HomeSplash({ phase }) {
       aria-label="Carregando cardápio"
     >
       <div className="home-splash-inner">
-        <img src={LOGO_URL} alt="Pizzas Ralf's" className="home-splash-logo" />
+        <img
+          src={LOGO_URL}
+          alt="Pizzas Ralf's"
+          className="home-splash-logo"
+          width={200}
+          height={200}
+          decoding="async"
+          fetchPriority="high"
+        />
         <p className="home-splash-kicker">Sabor tradicional</p>
         <div className="home-splash-loader" aria-hidden="true">
           <span />
@@ -1171,19 +1240,22 @@ function MenuItemCard({
   }
 
   const addDisabled = selectedFlavors.length === 0
+  const showImage = hasMenuItemImage(menuItem.image)
+  const placeholderStyle = showImage
+    ? undefined
+    : { '--placeholder-logo': `url(${LOGO_URL})` }
 
   return (
     <article className="card">
       <div
-        className={`card-media${menuItem.image ? ' card-media--has-image' : ' card-media--placeholder'}`}
+        className={`card-media${showImage ? ' card-media--has-image' : ' card-media--placeholder'}`}
         style={
-          menuItem.image
-            ? { '--card-image': `url(${JSON.stringify(menuItem.image)})` }
-            : undefined
+          showImage
+            ? { '--card-image': `url(${JSON.stringify(menuItem.image.trim())})` }
+            : placeholderStyle
         }
-        role={menuItem.image ? 'img' : undefined}
-        aria-label={menuItem.image ? menuItem.name : undefined}
-        aria-hidden={menuItem.image ? undefined : true}
+        role={showImage ? 'img' : undefined}
+        aria-label={showImage ? menuItem.name : undefined}
       />
       <h3>{menuItem.name}</h3>
       <p className="card-description">({menuItem.description})</p>
@@ -3369,7 +3441,7 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
           <div className="admin-item-meta-row">
             <dt>Imagem</dt>
             <dd>
-              {item.image ? (
+              {hasMenuItemImage(item.image) ? (
                 <button
                   type="button"
                   className="admin-view-photo-btn"
@@ -3378,7 +3450,11 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
                   Ver foto
                 </button>
               ) : (
-                <span className="admin-item-thumb admin-item-thumb--placeholder" aria-hidden="true" />
+                <span
+                  className="admin-item-thumb admin-item-thumb--placeholder"
+                  style={{ '--placeholder-logo': `url(${LOGO_URL})` }}
+                  aria-hidden="true"
+                />
               )}
             </dd>
           </div>

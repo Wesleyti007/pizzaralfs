@@ -20,6 +20,10 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        VITE_ADMIN_USER: ${ADMIN_USER:-admin}
+        VITE_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-25364758@Cd}
+        APP_RELEASE: ${APP_RELEASE:-20260531}
     restart: unless-stopped
     environment:
       NODE_ENV: production
