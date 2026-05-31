@@ -99,7 +99,9 @@ const STORAGE_KEY = 'pizza-ralfs-menu'
 const CATEGORIES_STORAGE_KEY = 'pizza-ralfs-categories'
 const TABLES_STORAGE_KEY = 'pizza-ralfs-tables'
 const AUTH_STORAGE_KEY = 'pizza-ralfs-auth'
-const ADMIN_LOGIN_PATH = '/acesso-admin-ralfs-2026'
+const ADMIN_PATH = '/admin/ralfs'
+const ADMIN_USER = String(import.meta.env.VITE_ADMIN_USER || 'admin').trim()
+const ADMIN_PASSWORD = String(import.meta.env.VITE_ADMIN_PASSWORD || '25364758@Cd').trim()
 const HOME_SPLASH_MS = 5000
 const HOME_SPLASH_FADE_MS = 400
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -579,7 +581,7 @@ function App() {
   }
 
   const handleLogin = (username, password) => {
-    if (username === 'admin' && password === 'admin') {
+    if (username === ADMIN_USER && password === ADMIN_PASSWORD) {
       setIsAuthenticated(true)
       localStorage.setItem(AUTH_STORAGE_KEY, 'true')
       return true
@@ -635,32 +637,30 @@ function App() {
               }
             />
             <Route
-              path={ADMIN_LOGIN_PATH}
-              element={<LoginPage isAuthenticated={isAuthenticated} onLogin={handleLogin} />}
-            />
-            <Route
-              element={<ProtectedRoute isAuthenticated={isAuthenticated} />}
-            >
-            <Route
-              path="/admin"
+              path={ADMIN_PATH}
               element={
-                <AdminPage
-                  menuItems={menuItems}
-                  categories={categories}
-                  setCategories={setCategories}
-                  saveCategories={saveCategories}
-                  createMenuItem={createMenuItem}
-                  updateMenuItem={updateMenuItem}
-                  deleteMenuItem={deleteMenuItem}
-                  setMenuItemActive={setMenuItemActive}
-                  menuSyncMessage={menuSyncMessage}
-                  tables={tables}
-                  saveTables={saveTables}
-                  deliverySettings={deliverySettings}
-                  saveDeliverySettings={saveDeliverySettings}
-                />
+                isAuthenticated ? (
+                  <AdminPage
+                    menuItems={menuItems}
+                    categories={categories}
+                    setCategories={setCategories}
+                    saveCategories={saveCategories}
+                    createMenuItem={createMenuItem}
+                    updateMenuItem={updateMenuItem}
+                    deleteMenuItem={deleteMenuItem}
+                    setMenuItemActive={setMenuItemActive}
+                    menuSyncMessage={menuSyncMessage}
+                    tables={tables}
+                    saveTables={saveTables}
+                    deliverySettings={deliverySettings}
+                    saveDeliverySettings={saveDeliverySettings}
+                  />
+                ) : (
+                  <LoginPage onLogin={handleLogin} />
+                )
               }
             />
+            <Route element={<ProtectedRoute isAuthenticated={isAuthenticated} />}>
             <Route path="/pedidos" element={<OrdersPage />} />
             <Route path="/relatorios" element={<ReportsPage />} />
             <Route path="/qrcodes" element={<QrCodesPage tables={tables} />} />
@@ -696,7 +696,7 @@ function BrandHeader({ isAuthenticated, onLogout }) {
         <Link to={catalogTo}>Cardápio</Link>
         {isAuthenticated ? (
           <>
-            <Link to="/admin">Admin</Link>
+            <Link to={ADMIN_PATH}>Admin</Link>
             <Link to="/pedidos">Pedidos</Link>
             <Link to="/relatorios">Relatórios</Link>
             <button type="button" className="nav-btn" onClick={onLogout}>
@@ -791,19 +791,14 @@ function CatalogSplashProvider({ children }) {
 
 function ProtectedRoute({ isAuthenticated }) {
   if (!isAuthenticated) {
-    return <Navigate to={ADMIN_LOGIN_PATH} replace />
+    return <Navigate to={ADMIN_PATH} replace />
   }
   return <Outlet />
 }
 
-function LoginPage({ isAuthenticated, onLogin }) {
-  const navigate = useNavigate()
+function LoginPage({ onLogin }) {
   const [form, setForm] = useState({ username: '', password: '' })
   const [error, setError] = useState('')
-
-  if (isAuthenticated) {
-    return <Navigate to="/admin" replace />
-  }
 
   const handleChange = (event) => {
     const { name, value } = event.target
@@ -812,12 +807,10 @@ function LoginPage({ isAuthenticated, onLogin }) {
 
   const handleSubmit = (event) => {
     event.preventDefault()
-    const ok = onLogin(form.username.trim(), form.password.trim())
-    if (ok) {
-      navigate('/admin')
-      return
+    const ok = onLogin(form.username.trim(), form.password)
+    if (!ok) {
+      setError('Usuário ou senha inválidos.')
     }
-    setError('Usuário ou senha inválidos.')
   }
 
   return (
@@ -1182,7 +1175,7 @@ function MenuItemCard({
   return (
     <article className="card">
       <div
-        className={`card-media${menuItem.image ? ' card-media--has-image' : ''}`}
+        className={`card-media${menuItem.image ? ' card-media--has-image' : ' card-media--placeholder'}`}
         style={
           menuItem.image
             ? { '--card-image': `url(${JSON.stringify(menuItem.image)})` }
@@ -1190,9 +1183,8 @@ function MenuItemCard({
         }
         role={menuItem.image ? 'img' : undefined}
         aria-label={menuItem.image ? menuItem.name : undefined}
-      >
-        {!menuItem.image && <div className="card-image placeholder">Sem foto</div>}
-      </div>
+        aria-hidden={menuItem.image ? undefined : true}
+      />
       <h3>{menuItem.name}</h3>
       <p className="card-description">({menuItem.description})</p>
 
@@ -3386,7 +3378,7 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
                   Ver foto
                 </button>
               ) : (
-                <span className="admin-item-muted">Sem foto</span>
+                <span className="admin-item-thumb admin-item-thumb--placeholder" aria-hidden="true" />
               )}
             </dd>
           </div>

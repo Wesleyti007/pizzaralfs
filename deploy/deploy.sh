@@ -23,16 +23,26 @@ rsync -avz \
 echo "==> Rebuild e restart no VPS"
 ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/deploy && docker compose up -d --build"
 
+echo "==> Migracoes SQL (idempotentes; ignora colunas ja existentes)"
+MIGRATIONS=(
+  migrate_categories.sql
+  migrate_pizza_sizes.sql
+  migrate_orders_status.sql
+  migrate_orders_delivery.sql
+  migrate_delivery_pricing.sql
+  migrate_delivery_km_cep.sql
+  migrate_menu_item_active.sql
+)
+for migration in "${MIGRATIONS[@]}"; do
+  echo "    -> ${migration}"
+  ssh "${VPS_USER}@${VPS_HOST}" \
+    "cd ${REMOTE_DIR}/deploy && docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/${migration}" \
+    || echo "    (aviso: ${migration} pode ja estar aplicada)"
+done
+
 echo "==> Status dos containers"
 ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/deploy && docker compose ps"
 
 echo ""
 echo "Pronto. Teste: https://pizzaralfs.com.br/health"
-echo "Admin:  https://pizzaralfs.com.br/acesso-admin-ralfs-2026"
-echo ""
-echo "Migracoes SQL (se precisar, rode no VPS):"
-echo "  ssh ${VPS_USER}@${VPS_HOST}"
-echo "  cd ${REMOTE_DIR}/deploy"
-echo "  docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_orders_delivery.sql"
-echo "  docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_delivery_pricing.sql"
-echo "  docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_delivery_km_cep.sql"
+echo "Admin:  https://pizzaralfs.com.br/admin/ralfs"

@@ -142,7 +142,7 @@ Todos devem estar `running`.
 2. Deve abrir o cardapio (loader e depois o menu).
 3. API: `https://seudominio.com.br/health` — deve retornar JSON ok.
 
-Admin: `https://seudominio.com.br/acesso-admin-ralfs-2026` — login `admin` / `admin`.
+Admin: `https://seudominio.com.br/admin/ralfs`
 
 ---
 
@@ -167,35 +167,46 @@ cd /opt/pizza-ralfs
 git pull
 ```
 
-### 2 — Rebuild e subir containers
+### 2 — Tudo de uma vez no Mac (recomendado)
+
+Na pasta do projeto, com SSH configurado para o VPS:
 
 ```bash
+cd /Users/coinfocoinfo/Documents/PizzaRalfs
+npm run deploy
+```
+
+Isso faz: **rsync** → **docker compose up -d --build** → **todas as migracoes SQL** (inclui `migrate_menu_item_active.sql` para ativar/desativar itens).
+
+### 2b — Passo a passo manual (se preferir)
+
+**No Mac** — enviar codigo:
+
+```bash
+cd /Users/coinfocoinfo/Documents/PizzaRalfs
+rsync -avz --exclude node_modules --exclude dist --exclude .git --exclude deploy/pgdata --exclude '.env' \
+  ./ root@161.97.100.78:/opt/pizza-ralfs/
+```
+
+**No VPS** — backup (opcional), migracoes e deploy:
+
+```bash
+ssh root@161.97.100.78
 cd /opt/pizza-ralfs/deploy
+docker compose exec -T db pg_dump -U pizzaralfs pizzaralfs > backup-$(date +%Y%m%d).sql
+
+for f in migrate_categories.sql migrate_pizza_sizes.sql migrate_orders_status.sql \
+  migrate_orders_delivery.sql migrate_delivery_pricing.sql migrate_delivery_km_cep.sql \
+  migrate_menu_item_active.sql; do
+  echo "==> $f"
+  docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/$f
+done
+
 docker compose up -d --build
+docker compose ps
 ```
 
-Espere terminar (recompila o front dentro do Docker).
-
-### 3 — Migracao do banco (se pediu delivery ou mudou SQL)
-
-O Postgres em producao **nao** reaplica `init.sql` sozinho. Rode migracoes novas **uma vez**:
-
-```bash
-cd /opt/pizza-ralfs/deploy
-docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_orders_delivery.sql
-docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_delivery_pricing.sql
-docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_menu_item_active.sql
-```
-
-Se aparecer `ALTER TABLE` varias vezes, ok. Se disser que a coluna ja existe, tambem ok.
-
-Outras migracoes (se ainda nao rodou no VPS):
-
-```bash
-docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_categories.sql
-docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_pizza_sizes.sql
-docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_orders_status.sql
-```
+Se aparecer `ALTER TABLE` ou `already exists`, ok (migracoes sao idempotentes).
 
 ### 4 — Conferir
 

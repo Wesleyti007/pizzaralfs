@@ -144,10 +144,11 @@ npm run preview
 
 ## Admin (desenvolvimento)
 
-- Rotas: `/acesso-admin-ralfs-2026` (login), `/admin`, `/pedidos`
-- Credenciais padrão no código: `admin` / `admin`
+- Admin: `/admin/ralfs` (login e painel)
+- Pedidos, relatórios e QR: `/pedidos`, `/relatorios`, `/qrcodes` (exigem login)
+- Credenciais: usuário `admin` e senha configurada (variáveis `VITE_ADMIN_USER` / `VITE_ADMIN_PASSWORD` no build, ou padrão no código)
 
-> **Segurança:** o login do admin hoje é apenas no frontend. Em produção, troque as credenciais, use HTTPS e planeje autenticação real na API antes de expor o painel publicamente.
+> **Segurança:** o login do admin hoje é apenas no frontend. Use HTTPS em produção; para reforçar, defina `VITE_ADMIN_PASSWORD` no build e planeje autenticação na API.
 
 ## Boas práticas adotadas
 
