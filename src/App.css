@@ -929,7 +929,7 @@ body.home-splash-active .brand-header {
   display: grid;
   justify-items: center;
   gap: 8px;
-  animation: pizza-visual-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: pizza-visual-enter 0.32s ease-out both;
 }
 
 .pizza-slice-visual--broto {
@@ -943,7 +943,7 @@ body.home-splash-active .brand-header {
   box-shadow:
     0 10px 28px rgba(44, 24, 16, 0.14),
     inset 0 2px 4px rgba(255, 255, 255, 0.85);
-  animation: pizza-plate-pop 0.65s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  animation: pizza-plate-pop 0.35s ease-out both;
 }
 
 .pizza-slice-svg {
@@ -961,7 +961,6 @@ body.home-splash-active .brand-header {
   fill: #e8c896;
   stroke: #b8862d;
   stroke-width: 3;
-  animation: pizza-crust-pulse 2.8s ease-in-out infinite;
 }
 
 .pizza-slice-layer {
@@ -978,11 +977,11 @@ body.home-splash-active .brand-header {
   stroke: rgba(255, 255, 255, 0.9);
   stroke-width: 2;
   opacity: 0.45;
-  transform: scale(0.92);
+  transform: scale(0.96);
   transition:
-    fill 0.55s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.45s ease,
-    transform 0.5s cubic-bezier(0.34, 1.35, 0.64, 1);
+    fill 0.22s ease,
+    opacity 0.22s ease,
+    transform 0.22s ease;
   transition-delay: var(--slice-delay, 0ms);
 }
 
@@ -990,19 +989,17 @@ body.home-splash-active .brand-header {
   fill: url(#pizza-cheese-base);
   opacity: 0;
   pointer-events: none;
-  transform: scale(0.88);
+  transform: scale(0.94);
   transition:
-    opacity 0.4s ease,
-    transform 0.45s cubic-bezier(0.34, 1.2, 0.64, 1);
-  transition-delay: calc(var(--slice-delay, 0ms) + 40ms);
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  transition-delay: calc(var(--slice-delay, 0ms) + 20ms);
 }
 
 .pizza-slice-group--filled .pizza-slice-part {
   fill: var(--slice-fill, #c45c26);
   opacity: 1;
   transform: scale(1);
-  animation: pizza-slice-pop 0.62s cubic-bezier(0.34, 1.45, 0.64, 1) both;
-  animation-delay: var(--slice-delay, 0ms);
 }
 
 .pizza-slice-group--filled .pizza-slice-cheese {
@@ -1010,21 +1007,14 @@ body.home-splash-active .brand-header {
   transform: scale(1);
 }
 
-.pizza-slice-layer--broto .pizza-slice-group--filled .pizza-slice-part {
-  animation: pizza-slice-pop 0.55s cubic-bezier(0.34, 1.45, 0.64, 1) both;
-  animation-delay: var(--slice-delay, 0ms);
-}
-
 .pizza-slice-center {
   fill: #faf6ef;
   stroke: #c5a059;
   stroke-width: 2;
-  animation: pizza-center-in 0.5s ease 0.2s both;
 }
 
 .pizza-slice-center-dot {
   fill: #e8d4b8;
-  animation: pizza-center-in 0.45s ease 0.35s both;
 }
 
 .pizza-slice-caption {
@@ -1032,7 +1022,6 @@ body.home-splash-active .brand-header {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--brand-text-muted);
-  animation: pizza-caption-fade 0.45s ease 0.15s both;
 }
 
 @keyframes pizza-visual-enter {
@@ -1134,7 +1123,7 @@ body.home-splash-active .brand-header {
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--brand-dark);
-  animation: pizza-chip-in 0.45s cubic-bezier(0.34, 1.25, 0.64, 1) both;
+  animation: pizza-chip-in 0.22s ease-out both;
   animation-delay: var(--chip-delay, 0ms);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--chip-color) 22%, transparent);
 }
@@ -1150,6 +1139,28 @@ body.home-splash-active .brand-header {
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* Celular: troca de sabor só muda cor (sem replay da pizza inteira) */
+@media (max-width: 768px) {
+  .pizza-slice-plate {
+    animation: none;
+  }
+
+  .pizza-slice-part {
+    transition-duration: 0.16s;
+    transition-delay: 0ms;
+  }
+
+  .pizza-slice-cheese {
+    transition-duration: 0.16s;
+    transition-delay: 0ms;
+  }
+
+  .pizza-flavor-chip {
+    animation-duration: 0.18s;
+    animation-delay: 0ms;
   }
 }
 

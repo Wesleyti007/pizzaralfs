@@ -38,7 +38,6 @@ export function PizzaSlicePicker({
     [pieceCount, selectedFlavors.length],
   )
 
-  const flavorSignature = selectedFlavors.map((f) => normalizeItemId(f.id)).join('-')
   const filledCount = selectedFlavors.length
 
   const availableOptions = otherPizzaOptions.filter(
@@ -52,7 +51,7 @@ export function PizzaSlicePicker({
   const pizzaVisual = (
     <div
       className="pizza-slice-visual"
-      key={`pizza-viz-${pieceCount}-${flavorSignature}`}
+      key={`pizza-viz-${pieceCount}`}
       aria-hidden="true"
     >
       <div className="pizza-slice-plate">
@@ -62,13 +61,10 @@ export function PizzaSlicePicker({
               <stop offset="0%" stopColor="#fff8e8" />
               <stop offset="100%" stopColor="#f0d9a8" />
             </radialGradient>
-            <filter id="pizza-slice-glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodOpacity="0.25" />
-            </filter>
           </defs>
           <circle cx="100" cy="100" r="94" className="pizza-slice-shadow" />
           <circle cx="100" cy="100" r="92" className="pizza-slice-crust" />
-          <g className="pizza-slice-layer" filter="url(#pizza-slice-glow)">
+          <g className="pizza-slice-layer">
             {Array.from({ length: pieceCount }, (_, index) => {
               const flavorIndex = sliceOwners[index] ?? 0
               const fill = PIZZA_FLAVOR_COLORS[flavorIndex % PIZZA_FLAVOR_COLORS.length]
@@ -77,7 +73,7 @@ export function PizzaSlicePicker({
                 <g
                   key={`slice-g-${index}-${flavorIndex}-${filledCount}`}
                   className={`pizza-slice-group${isFilled ? ' pizza-slice-group--filled' : ''}`}
-                  style={{ '--slice-delay': `${index * 70}ms`, '--slice-fill': fill }}
+                  style={{ '--slice-delay': `${index * 24}ms`, '--slice-fill': fill }}
                 >
                   <path
                     d={slicePath(100, 100, 88, index, pieceCount)}
@@ -117,7 +113,7 @@ export function PizzaSlicePicker({
                   className="pizza-flavor-chip"
                   style={{
                     '--chip-color': PIZZA_FLAVOR_COLORS[index % PIZZA_FLAVOR_COLORS.length],
-                    '--chip-delay': `${index * 80}ms`,
+                    '--chip-delay': `${index * 30}ms`,
                   }}
                 >
                   <span className="pizza-flavor-chip-dot" aria-hidden="true" />
@@ -198,7 +194,7 @@ export function PizzaSlicePicker({
                       key={`broto-slice-${index}`}
                       className="pizza-slice-group pizza-slice-group--filled"
                       style={{
-                        '--slice-delay': `${index * 65}ms`,
+                        '--slice-delay': `${index * 24}ms`,
                         '--slice-fill': PIZZA_FLAVOR_COLORS[0],
                       }}
                     >

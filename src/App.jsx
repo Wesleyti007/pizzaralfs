@@ -103,9 +103,8 @@ const AUTH_STORAGE_KEY = 'pizza-ralfs-auth'
 const ADMIN_PATH = '/admin/ralfs'
 const ADMIN_USER = String(import.meta.env.VITE_ADMIN_USER || 'admin').trim()
 const ADMIN_PASSWORD = String(import.meta.env.VITE_ADMIN_PASSWORD || '25364758@Cd').trim()
-const HOME_SPLASH_MIN_MS = 700
-const HOME_SPLASH_MAX_MS = 2200
-const HOME_SPLASH_FADE_MS = 280
+const HOME_SPLASH_MS = 4000
+const HOME_SPLASH_FADE_MS = 400
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 const LOGO_URL = '/logo-ralfs-web.png'
 
@@ -382,7 +381,6 @@ function App() {
     () => localStorage.getItem(AUTH_STORAGE_KEY) === 'true',
   )
   const [menuSyncMessage, setMenuSyncMessage] = useState('')
-  const [catalogBootstrapped, setCatalogBootstrapped] = useState(false)
   const [deliverySettings, setDeliverySettings] = useState(() => ({ ...DEFAULT_DELIVERY_SETTINGS }))
 
   const saveTables = (items) => {
@@ -441,14 +439,9 @@ function App() {
         if (!cancelled) {
           setMenuSyncMessage('Sem conexão com a API. Usando cardápio local.')
         }
-      } finally {
-        if (!cancelled) {
-          setCatalogBootstrapped(true)
-        }
       }
     }
 
-    setCatalogBootstrapped(false)
     loadDataFromApi()
 
     return () => {
@@ -611,7 +604,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      <CatalogSplashProvider catalogBootstrapped={catalogBootstrapped}>
+      <CatalogSplashProvider>
       <CatalogReceiptProvider>
       <div className="app">
         <BrandHeader isAuthenticated={isAuthenticated} onLogout={handleLogout} />
@@ -761,12 +754,11 @@ function CatalogReceiptProvider({ children }) {
   )
 }
 
-function CatalogSplashProvider({ children, catalogBootstrapped }) {
+function CatalogSplashProvider({ children }) {
   const location = useLocation()
   const isCatalog = isCatalogRoute(location.pathname)
   const [splashPhase, setSplashPhase] = useState('hidden')
   const splashRunRef = useRef(0)
-  const splashStartedRef = useRef(0)
 
   useEffect(() => {
     if (!isCatalog) {
@@ -776,12 +768,8 @@ function CatalogSplashProvider({ children, catalogBootstrapped }) {
     }
 
     const runId = ++splashRunRef.current
-    splashStartedRef.current = Date.now()
     setSplashPhase('visible')
     document.body.classList.add('home-splash-active')
-
-    let hideTimer = null
-    let doneTimer = null
 
     const finishSplash = () => {
       if (runId !== splashRunRef.current) return
@@ -789,37 +777,24 @@ function CatalogSplashProvider({ children, catalogBootstrapped }) {
       document.body.classList.remove('home-splash-active')
     }
 
-    const startHide = () => {
+    const hideTimer = window.setTimeout(() => {
       if (runId !== splashRunRef.current) return
       setSplashPhase('hiding')
-      doneTimer = window.setTimeout(finishSplash, HOME_SPLASH_FADE_MS)
-    }
-
-    const scheduleHide = () => {
-      if (hideTimer) window.clearTimeout(hideTimer)
-      const elapsed = Date.now() - splashStartedRef.current
-      let delay = HOME_SPLASH_MAX_MS - elapsed
-      if (catalogBootstrapped) {
-        delay = Math.min(delay, Math.max(0, HOME_SPLASH_MIN_MS - elapsed))
-      }
-      hideTimer = window.setTimeout(startHide, Math.max(0, delay))
-    }
-
-    scheduleHide()
-
+    }, HOME_SPLASH_MS)
+    const doneTimer = window.setTimeout(finishSplash, HOME_SPLASH_MS + HOME_SPLASH_FADE_MS)
     const safetyTimer = window.setTimeout(
       finishSplash,
-      HOME_SPLASH_MAX_MS + HOME_SPLASH_FADE_MS + 1500,
+      HOME_SPLASH_MS + HOME_SPLASH_FADE_MS + 2000,
     )
 
     return () => {
       splashRunRef.current += 1
-      if (hideTimer) window.clearTimeout(hideTimer)
-      if (doneTimer) window.clearTimeout(doneTimer)
+      window.clearTimeout(hideTimer)
+      window.clearTimeout(doneTimer)
       window.clearTimeout(safetyTimer)
       document.body.classList.remove('home-splash-active')
     }
-  }, [isCatalog, catalogBootstrapped])
+  }, [isCatalog])
 
   return (
     <CatalogSplashContext.Provider value={splashPhase}>
