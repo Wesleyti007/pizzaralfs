@@ -40,6 +40,17 @@ import {
   saveDeliveryInfoToSession,
   validateDeliveryInfo,
 } from './delivery.js'
+
+export const DEFAULT_DELIVERY_SETTINGS = {
+  deliveryFee: 0,
+  establishmentCep: '',
+  establishmentStreet: '',
+  establishmentNumber: '',
+  establishmentNeighborhood: '',
+  establishmentCity: '',
+  establishmentState: '',
+  deliveryPricePerKm: 0,
+}
 import {
   DEFAULT_CATEGORIES,
   catalogPathWithMesa,
@@ -74,6 +85,7 @@ import {
   slugify,
 } from './catalog.js'
 import { calcCartTotals, computeMultiFlavorPriceForMode, resolveUnitPrice } from './pricing.js'
+import { MENU_IMAGE_HEIGHT, MENU_IMAGE_WIDTH, normalizeMenuImageFile } from './menuImage.js'
 
 const STORAGE_KEY = 'pizza-ralfs-menu'
 const CATEGORIES_STORAGE_KEY = 'pizza-ralfs-categories'
@@ -270,7 +282,7 @@ function App() {
     () => localStorage.getItem(AUTH_STORAGE_KEY) === 'true',
   )
   const [menuSyncMessage, setMenuSyncMessage] = useState('')
-  const [deliveryFee, setDeliveryFee] = useState(0)
+  const [deliverySettings, setDeliverySettings] = useState(() => ({ ...DEFAULT_DELIVERY_SETTINGS }))
 
   const saveTables = (items) => {
     const normalized = Array.from(new Set(items)).sort((a, b) => a - b)
@@ -298,7 +310,12 @@ function App() {
         const settingsResponse = await fetch(`${API_BASE_URL}/settings`)
         if (settingsResponse.ok) {
           const settings = await settingsResponse.json()
-          setDeliveryFee(Math.max(0, Number(settings.deliveryFee) || 0))
+          setDeliverySettings({
+            ...DEFAULT_DELIVERY_SETTINGS,
+            ...settings,
+            deliveryFee: Math.max(0, Number(settings.deliveryFee) || 0),
+            deliveryPricePerKm: Math.max(0, Number(settings.deliveryPricePerKm) || 0),
+          })
         }
       } catch {
         // mantém taxa local
@@ -326,17 +343,17 @@ function App() {
     loadDataFromApi()
   }, [])
 
-  const saveDeliverySettings = async (fee) => {
+  const saveDeliverySettings = async (settingsPayload) => {
     const response = await fetch(`${API_BASE_URL}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deliveryFee: Math.max(0, Number(fee) || 0) }),
+      body: JSON.stringify(settingsPayload),
     })
     if (!response.ok) {
-      throw new Error('Falha ao salvar taxa de entrega')
+      throw new Error('Falha ao salvar configurações de delivery')
     }
     const saved = await response.json()
-    setDeliveryFee(Math.max(0, Number(saved.deliveryFee) || 0))
+    setDeliverySettings({ ...DEFAULT_DELIVERY_SETTINGS, ...saved })
     return saved
   }
 
@@ -462,7 +479,7 @@ function App() {
                   menuItems={menuItems}
                   tables={tables}
                   categories={categories}
-                  deliveryFee={deliveryFee}
+                  deliverySettings={deliverySettings}
                 />
               }
             />
@@ -473,7 +490,7 @@ function App() {
                   menuItems={menuItems}
                   tables={tables}
                   categories={categories}
-                  deliveryFee={deliveryFee}
+                  deliverySettings={deliverySettings}
                 />
               }
             />
@@ -484,7 +501,7 @@ function App() {
                   menuItems={menuItems}
                   tables={tables}
                   categories={categories}
-                  deliveryFee={deliveryFee}
+                  deliverySettings={deliverySettings}
                 />
               }
             />
@@ -509,7 +526,7 @@ function App() {
                   menuSyncMessage={menuSyncMessage}
                   tables={tables}
                   saveTables={saveTables}
-                  deliveryFee={deliveryFee}
+                  deliverySettings={deliverySettings}
                   saveDeliverySettings={saveDeliverySettings}
                 />
               }
@@ -777,8 +794,7 @@ function OrderPanel({
             <div className="delivery-fields">
               <p className="delivery-fields-title">Entrega (delivery)</p>
               <p className="delivery-fields-hint">
-                Todos os campos abaixo são <strong>obrigatórios</strong> para finalizar o pedido.
-                Seu celular pode sugerir nome e telefone automaticamente.
+                Taxa de entrega fixa conforme configurado no estabelecimento.
               </p>
               <label className="observation-label" htmlFor={nameId}>
                 Nome <span className="required-mark">*</span>
@@ -820,7 +836,7 @@ function OrderPanel({
                 <p className="delivery-field-error">{deliveryFieldErrors.customerPhone}</p>
               )}
               <label className="observation-label" htmlFor={addressId}>
-                Endereço <span className="required-mark">*</span>
+                Endereço de entrega <span className="required-mark">*</span>
               </label>
               <input
                 id={addressId}
@@ -829,11 +845,11 @@ function OrderPanel({
                 className={`delivery-input${deliveryFieldErrors.deliveryAddress ? ' delivery-input--invalid' : ''}`}
                 autoComplete="street-address"
                 required
-                aria-required="true"
-                aria-invalid={deliveryFieldErrors.deliveryAddress ? 'true' : undefined}
                 value={deliveryInfo.deliveryAddress}
-                onChange={(event) => onDeliveryFieldChange('deliveryAddress', event.target.value)}
-                placeholder="Rua, número, bairro"
+                onChange={(event) =>
+                  onDeliveryFieldChange('deliveryAddress', event.target.value)
+                }
+                placeholder="Rua, número, bairro, cidade"
               />
               {deliveryFieldErrors.deliveryAddress && (
                 <p className="delivery-field-error">{deliveryFieldErrors.deliveryAddress}</p>
@@ -866,10 +882,8 @@ function OrderPanel({
             <p className="order-subtotal">
               Subtotal: R$ {subtotal.toFixed(2)}
             </p>
-            {isDelivery && deliveryFee > 0 && (
-              <p className="order-delivery-fee">
-                Taxa de entrega: R$ {deliveryFee.toFixed(2)}
-              </p>
+            {isDelivery && (
+              <p className="order-delivery-fee">Taxa de entrega: R$ {deliveryFee.toFixed(2)}</p>
             )}
             <h3 className="order-total">Total: R$ {total.toFixed(2)}</h3>
           </div>
@@ -1034,6 +1048,8 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = fa
             src={menuItem.image}
             alt={menuItem.name}
             className="card-image"
+            width={MENU_IMAGE_WIDTH}
+            height={MENU_IMAGE_HEIGHT}
             loading="lazy"
             decoding="async"
           />
@@ -1096,7 +1112,7 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = fa
   )
 }
 
-function HomePage({ menuItems, tables, categories, deliveryFee = 0 }) {
+function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DELIVERY_SETTINGS }) {
   const location = useLocation()
   const { categoryId, subcategoryId } = useParams()
   const splashPhase = useContext(CatalogSplashContext)
@@ -1104,6 +1120,7 @@ function HomePage({ menuItems, tables, categories, deliveryFee = 0 }) {
   const [observation, setObservation] = useState('')
   const [deliveryInfo, setDeliveryInfo] = useState(() => loadDeliveryInfoFromSession())
   const [deliveryFieldError, setDeliveryFieldError] = useState('')
+  const fixedDeliveryFee = Math.max(0, Number(deliverySettings.deliveryFee) || 0)
   const {
     receiptOrder,
     setReceiptOrder,
@@ -1132,9 +1149,10 @@ function HomePage({ menuItems, tables, categories, deliveryFee = 0 }) {
   )
   const canFinalize = !isDelivery || deliveryValidation.ok
   const deliveryFieldErrors = useMemo(() => {
-    if (!isDelivery || cart.length === 0 || canFinalize) return {}
+    if (!isDelivery || cart.length === 0) return {}
+    if (deliveryValidation.ok) return {}
     return getDeliveryFieldErrors(deliveryInfo)
-  }, [isDelivery, cart.length, canFinalize, deliveryInfo])
+  }, [isDelivery, cart.length, deliveryValidation.ok, deliveryInfo])
 
   useEffect(() => {
     if (mesa) persistTableNumber(mesa)
@@ -1183,15 +1201,11 @@ function HomePage({ menuItems, tables, categories, deliveryFee = 0 }) {
     )
   }
 
+  const effectiveDeliveryFee = isDelivery ? fixedDeliveryFee : 0
+
   const cartTotals = useMemo(
-    () =>
-      calcCartTotals(cart, {
-        isDelivery,
-        deliveryFee,
-        deliveryCep: '', // deliveryInfo.cep quando ativar deliveryCep.js
-        deliveryAddress: deliveryInfo.deliveryAddress,
-      }),
-    [cart, isDelivery, deliveryFee, deliveryInfo.deliveryAddress],
+    () => calcCartTotals(cart, { isDelivery, deliveryFee: effectiveDeliveryFee }),
+    [cart, isDelivery, effectiveDeliveryFee],
   )
   const { subtotal, deliveryFee: cartDeliveryFee, total } = cartTotals
   const cartCount = useMemo(
@@ -1254,7 +1268,7 @@ function HomePage({ menuItems, tables, categories, deliveryFee = 0 }) {
         return
       }
       deliveryData = check.data
-      saveDeliveryInfoToSession(check.data)
+      saveDeliveryInfoToSession(deliveryInfo)
     }
 
     setIsSubmittingOrder(true)
@@ -2353,6 +2367,9 @@ function AdminItemFormFields({
       <label className="file-input-label field-full">
         Foto do produto
         <input type="file" accept="image/*" onChange={onImageUpload} />
+        <small className="field-hint">
+          Qualquer tamanho: a foto é ajustada automaticamente para o formato do cardápio.
+        </small>
       </label>
       {showPizzaSizes ? (
         <div className="pizza-sizes-admin field-full">
@@ -2518,8 +2535,10 @@ function AdminEditItemModal({
           />
           {form.image && (
             <div className="image-preview image-preview--modal field-full">
-              <p>Pré-visualização da foto</p>
-              <img src={form.image} alt="Preview do item" />
+              <p>Pré-visualização (como no cardápio)</p>
+              <div className="card-media menu-image-preview">
+                <img src={form.image} alt="Preview do item" className="card-image" />
+              </div>
             </div>
           )}
           <div className="admin-form-actions">
@@ -2950,39 +2969,80 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 const ADMIN_SECTIONS = [
   { id: 'novo', label: 'Novo item', hint: 'Cadastrar' },
   { id: 'itens', label: 'Itens', hint: 'Ver e editar' },
+  { id: 'entrega', label: 'Entrega', hint: 'Taxa fixa' },
   { id: 'categorias', label: 'Categorias', hint: 'Grupos' },
-  { id: 'entrega', label: 'Delivery', hint: 'Taxa' },
   { id: 'qrcodes', label: 'QR Codes', hint: 'Mesas' },
 ]
 
-function AdminDeliverySettings({ deliveryFee, saveDeliverySettings }) {
-  const [feeInput, setFeeInput] = useState(formatPriceForInput(deliveryFee))
+function AdminDeliveryConfigBanner({ deliverySettings, onOpenSettings }) {
+  const fee = Math.max(0, Number(deliverySettings.deliveryFee) || 0)
+  const configured = fee > 0
+
+  return (
+    <div
+      className={`admin-delivery-banner${configured ? ' admin-delivery-banner--ok' : ' admin-delivery-banner--warn'}`}
+    >
+      <div className="admin-delivery-banner-text">
+        <strong>Taxa de entrega (delivery)</strong>
+        {configured ? (
+          <span>
+            Valor fixo por pedido: <strong>R$ {fee.toFixed(2).replace('.', ',')}</strong>
+          </span>
+        ) : (
+          <span>
+            Defina a <strong>taxa de entrega</strong> na aba Entrega (pode ser R$ 0,00 se não
+            cobrar).
+          </span>
+        )}
+      </div>
+      <button type="button" className="admin-btn admin-btn-outline" onClick={onOpenSettings}>
+        {configured ? 'Editar taxa' : 'Configurar taxa'}
+      </button>
+    </div>
+  )
+}
+
+function AdminDeliverySettings({ deliverySettings, saveDeliverySettings }) {
+  const [form, setForm] = useState(() => ({
+    deliveryFee: formatPriceForInput(deliverySettings.deliveryFee),
+  }))
   const [saving, setSaving] = useState(false)
   const [modal, setModal] = useState(null)
 
   useEffect(() => {
-    setFeeInput(formatPriceForInput(deliveryFee))
-  }, [deliveryFee])
+    setForm({
+      deliveryFee: formatPriceForInput(deliverySettings.deliveryFee),
+    })
+  }, [deliverySettings])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    const parsed = parsePriceInput(feeInput)
-    if (Number.isNaN(parsed) || parsed < 0) {
+    const fee = parsePriceInput(form.deliveryFee)
+    if (Number.isNaN(fee) || fee < 0) {
       setModal({
         variant: 'error',
         title: 'Valor inválido',
-        description: 'Informe a taxa de entrega (use 0,00 se não cobrar taxa fixa).',
+        description: 'Informe um valor válido para a taxa de entrega.',
       })
       return
     }
 
     setSaving(true)
     try {
-      await saveDeliverySettings(parsed)
+      await saveDeliverySettings({
+        deliveryFee: fee,
+        establishmentCep: '',
+        establishmentStreet: '',
+        establishmentNumber: '',
+        establishmentNeighborhood: '',
+        establishmentCity: '',
+        establishmentState: '',
+        deliveryPricePerKm: 0,
+      })
       setModal({
         variant: 'success',
         title: 'Salvo',
-        description: `Taxa de entrega: R$ ${parsed.toFixed(2).replace('.', ',')}`,
+        description: `Taxa de entrega: R$ ${fee.toFixed(2).replace('.', ',')}`,
       })
     } catch (error) {
       setModal({
@@ -2997,30 +3057,40 @@ function AdminDeliverySettings({ deliveryFee, saveDeliverySettings }) {
 
   return (
     <section className="admin-delivery-settings">
-      <h3>Configurações de delivery</h3>
-      <p>
-        Defina a <strong>taxa de entrega fixa</strong> somada ao carrinho no cardápio delivery.
-        Nos itens, use preços delivery opcionais (aba Novo item / Editar) quando o valor for
-        diferente do salão.
-      </p>
+      <header className="admin-panel-header">
+        <h3>Taxa de entrega</h3>
+        <p>
+          Valor fixo somado a cada pedido delivery no cardápio.
+        </p>
+      </header>
+
       <form onSubmit={handleSubmit} className="admin-delivery-settings-form">
-        <label className="price-field">
-          <span className="field-label">Taxa de entrega (por pedido)</span>
-          <div className="price-input-wrap">
-            <span className="price-prefix" aria-hidden="true">
-              R$
-            </span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={feeInput}
-              onChange={(event) => setFeeInput(applyPriceMask(event.target.value))}
-              placeholder="0,00"
-            />
-          </div>
-        </label>
-        <button type="submit" className="admin-btn admin-btn-primary" disabled={saving}>
-          {saving ? 'Salvando...' : 'Salvar taxa'}
+        <div className="admin-delivery-card admin-delivery-card--km">
+          <h4 className="admin-delivery-card-title">Taxa fixa por pedido</h4>
+          <p className="admin-delivery-card-desc">
+            Aparece no carrinho como &quot;Taxa de entrega&quot;. Use 0,00 se a entrega for grátis.
+          </p>
+          <label className="price-field field-full">
+            <span className="field-label">Taxa de entrega (R$)</span>
+            <div className="price-input-wrap">
+              <span className="price-prefix" aria-hidden="true">
+                R$
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={form.deliveryFee}
+                onChange={(event) =>
+                  setForm((c) => ({ ...c, deliveryFee: applyPriceMask(event.target.value) }))
+                }
+                placeholder="Ex: 8,00"
+              />
+            </div>
+          </label>
+        </div>
+
+        <button type="submit" className="admin-btn admin-btn-primary admin-delivery-save" disabled={saving}>
+          {saving ? 'Salvando...' : 'Salvar taxa de entrega'}
         </button>
       </form>
       <AdminFeedbackModal modal={modal} onClose={() => setModal(null)} />
@@ -3317,7 +3387,7 @@ function AdminPage({
   menuSyncMessage,
   tables,
   saveTables,
-  deliveryFee,
+  deliverySettings = DEFAULT_DELIVERY_SETTINGS,
   saveDeliverySettings,
 }) {
   const [newItemForm, setNewItemForm] = useState(emptyItemForm)
@@ -3379,18 +3449,22 @@ function AdminPage({
     setFormState((current) => ({ ...current, deliveryPrice: value }))
   }
 
-  const makeImageUploadHandler = (setFormState) => (event) => {
+  const makeImageUploadHandler = (setFormState) => async (event) => {
     const file = event.target.files?.[0]
+    event.target.value = ''
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      setFormState((current) => ({
-        ...current,
-        image: typeof reader.result === 'string' ? reader.result : current.image,
-      }))
+    try {
+      const image = await normalizeMenuImageFile(file)
+      setFormState((current) => ({ ...current, image }))
+    } catch (error) {
+      setItemModal({
+        variant: 'error',
+        title: 'Foto do produto',
+        description:
+          error instanceof Error ? error.message : 'Não foi possível processar a imagem.',
+      })
     }
-    reader.readAsDataURL(file)
   }
 
   const makePriceChangeHandler = (setFormState) => (event) => {
@@ -3606,7 +3680,11 @@ function AdminPage({
     <section className="admin">
       <header className="admin-page-header">
         <h2>Painel Admin</h2>
-        <p>Use as abas: novo item, itens, categorias, delivery ou QR Codes.</p>
+        <p>Use as abas: novo item, itens, entrega (taxa fixa), categorias ou QR Codes.</p>
+        <AdminDeliveryConfigBanner
+          deliverySettings={deliverySettings}
+          onOpenSettings={() => setAdminTab('entrega')}
+        />
         {menuSyncMessage && (
           <p
             className={`menu-sync-message${
@@ -3683,8 +3761,10 @@ function AdminPage({
 
             {newItemForm.image && (
               <div className="image-preview">
-                <p>Pré-visualização da foto</p>
-                <img src={newItemForm.image} alt="Preview do item" />
+                <p>Pré-visualização (como no cardápio)</p>
+                <div className="card-media menu-image-preview">
+                  <img src={newItemForm.image} alt="Preview do item" className="card-image" />
+                </div>
               </div>
             )}
           </div>
@@ -3705,7 +3785,7 @@ function AdminPage({
         {adminTab === 'entrega' && (
           <div role="tabpanel" className="admin-tab-panel">
             <AdminDeliverySettings
-              deliveryFee={deliveryFee}
+              deliverySettings={deliverySettings}
               saveDeliverySettings={saveDeliverySettings}
             />
           </div>

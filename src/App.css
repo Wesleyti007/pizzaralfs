@@ -584,8 +584,11 @@ body.home-splash-active .brand-header {
   inset: 0;
   width: 100%;
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: cover;
   object-position: center;
+  display: block;
 }
 
 .card-image.placeholder {
@@ -1410,7 +1413,7 @@ body.home-splash-active .brand-header {
   border-radius: 10px;
   padding: 14px;
   background: #fff;
-  max-width: 280px;
+  max-width: 100%;
 }
 
 .image-preview p {
@@ -1419,11 +1422,12 @@ body.home-splash-active .brand-header {
   color: #4b5563;
 }
 
-.image-preview img {
-  max-width: 220px;
-  width: 100%;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
+.menu-image-preview {
+  max-width: 320px;
+}
+
+.image-preview--modal .menu-image-preview {
+  max-width: 100%;
 }
 
 .admin-form select {
@@ -1649,6 +1653,49 @@ body.home-splash-active .brand-header {
   font-weight: 600;
 }
 
+.delivery-field-hint {
+  margin: -2px 0 4px;
+  font-size: 0.78rem;
+  color: var(--brand-text-muted);
+}
+
+.delivery-fields-row {
+  display: grid;
+  grid-template-columns: 1fr 72px;
+  gap: 8px;
+}
+
+.admin-delivery-fieldset {
+  border: 1px solid rgba(197, 160, 89, 0.4);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-delivery-fieldset legend {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--brand-red-deep);
+  padding: 0 6px;
+}
+
+.admin-delivery-settings-form .observation-label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.admin-delivery-settings-form .observation-label input {
+  font-weight: 400;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  font-family: inherit;
+}
+
 .order-totals-breakdown {
   display: grid;
   gap: 4px;
@@ -1722,15 +1769,88 @@ body.home-splash-active .brand-header {
   color: var(--brand-text-muted);
 }
 
-.admin-delivery-settings {
-  max-width: 420px;
-  display: grid;
+.admin-delivery-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+}
+
+.admin-delivery-banner--warn {
+  background: rgba(180, 120, 0, 0.1);
+  border-color: rgba(180, 120, 0, 0.35);
+}
+
+.admin-delivery-banner--ok {
+  background: rgba(22, 101, 52, 0.08);
+  border-color: rgba(22, 101, 52, 0.3);
+}
+
+.admin-delivery-banner-text {
+  display: grid;
+  gap: 4px;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 200px;
+}
+
+.admin-delivery-banner-text strong {
+  color: var(--brand-red-deep);
+}
+
+.admin-delivery-settings {
+  max-width: 640px;
+  display: grid;
+  gap: 16px;
 }
 
 .admin-delivery-settings-form {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+}
+
+.admin-delivery-card {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(197, 160, 89, 0.4);
+  background: #fff;
+}
+
+.admin-delivery-card--km {
+  border-color: rgba(139, 30, 30, 0.35);
+  background: rgba(139, 30, 30, 0.04);
+}
+
+.admin-delivery-card-title {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--brand-red-deep);
+}
+
+.admin-delivery-fieldset .admin-delivery-card-title {
+  padding: 0 4px;
+}
+
+.admin-delivery-card-desc {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: var(--brand-text-muted);
+  line-height: 1.4;
+}
+
+.admin-delivery-save {
+  width: fit-content;
+}
+
+.admin-delivery-settings-form .field-full {
+  grid-column: 1 / -1;
 }
 
 .pizza-sizes-admin--delivery {
@@ -2211,10 +2331,6 @@ body.home-splash-active .brand-header {
 
 .image-preview--modal {
   margin: 0;
-}
-
-.image-preview--modal img {
-  max-width: 100%;
 }
 
 .admin-inline-form input {

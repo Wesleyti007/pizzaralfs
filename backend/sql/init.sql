@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_phone TEXT NOT NULL DEFAULT '',
   delivery_address TEXT NOT NULL DEFAULT '',
   delivery_reference TEXT NOT NULL DEFAULT '',
+  customer_cep TEXT NOT NULL DEFAULT '',
+  delivery_distance_km NUMERIC(8,2),
   items_subtotal NUMERIC(10,2) NOT NULL DEFAULT 0,
   delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
   observation TEXT DEFAULT '',
@@ -18,6 +20,13 @@ CREATE TABLE IF NOT EXISTS catalog_settings (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   categories JSONB NOT NULL DEFAULT '[]'::jsonb,
   delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
+  establishment_cep TEXT NOT NULL DEFAULT '',
+  establishment_street TEXT NOT NULL DEFAULT '',
+  establishment_number TEXT NOT NULL DEFAULT '',
+  establishment_neighborhood TEXT NOT NULL DEFAULT '',
+  establishment_city TEXT NOT NULL DEFAULT '',
+  establishment_state TEXT NOT NULL DEFAULT '',
+  delivery_price_per_km NUMERIC(10,2) NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

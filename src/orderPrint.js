@@ -46,6 +46,11 @@ function buildDeliveryBlockHtml(order, { canhoto = false } = {}) {
       <p class="print-line print-delivery-field"><span class="print-lbl">WhatsApp:</span> ${escapeHtml(phone)}</p>
       <p class="print-line print-delivery-field"><span class="print-lbl">Endereco:</span> ${escapeHtml(order.deliveryAddress || '')}</p>
       <p class="print-line print-delivery-field"><span class="print-lbl">Referencia:</span> ${escapeHtml(order.deliveryReference || '')}</p>
+      ${
+        order.deliveryDistanceKm != null
+          ? `<p class="print-line print-delivery-field"><span class="print-lbl">Distancia:</span> ${escapeHtml(String(order.deliveryDistanceKm))} km</p>`
+          : ''
+      }
     </div>
   `
 }

@@ -4,7 +4,6 @@ import {
   itemHasSizes,
   normalizeFlavorIdList,
 } from './catalog.js'
-import { resolveDeliveryFee } from './deliveryCep.js'
 
 export function resolveUnitPrice(menuItem, sizeId, forDelivery = false) {
   if (!forDelivery) {
@@ -36,18 +35,9 @@ export function computeMultiFlavorPriceForMode(pizzaItemsById, flavorIds, sizeId
   return prices.length ? Math.max(...prices) : 0
 }
 
-export function calcCartTotals(
-  cart,
-  { isDelivery, deliveryFee = 0, deliveryCep = '', deliveryAddress = '' } = {},
-) {
+export function calcCartTotals(cart, { isDelivery, deliveryFee = 0 } = {}) {
   const subtotal = cart.reduce((sum, item) => sum + Number(item.price) * Number(item.qty), 0)
-  const fee = isDelivery
-    ? resolveDeliveryFee({
-        baseFee: deliveryFee,
-        cep: deliveryCep,
-        address: deliveryAddress,
-      })
-    : 0
+  const fee = isDelivery ? Math.max(0, Number(deliveryFee) || 0) : 0
   return {
     subtotal,
     deliveryFee: fee,

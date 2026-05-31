@@ -1,12 +1,10 @@
 export const DELIVERY_INFO_STORAGE_KEY = 'pizza-ralfs-delivery-info'
 
-// Campo opcional futuro: cep — ver src/deliveryCep.js (integração comentada)
 const EMPTY_DELIVERY = {
   customerName: '',
   customerPhone: '',
   deliveryAddress: '',
   deliveryReference: '',
-  // cep: '',
 }
 
 export function isDeliveryOrder(tableNumber, orderType) {
@@ -20,10 +18,22 @@ export function loadDeliveryInfoFromSession() {
     const raw = sessionStorage.getItem(DELIVERY_INFO_STORAGE_KEY)
     if (!raw) return { ...EMPTY_DELIVERY }
     const parsed = JSON.parse(raw)
+    const legacyAddress = [
+      parsed.street,
+      parsed.number,
+      parsed.neighborhood,
+      parsed.city,
+      parsed.state,
+      parsed.cep,
+    ]
+      .filter(Boolean)
+      .join(', ')
     return {
       customerName: String(parsed.customerName || '').trim(),
       customerPhone: String(parsed.customerPhone || '').trim(),
-      deliveryAddress: String(parsed.deliveryAddress || '').trim(),
+      deliveryAddress: String(
+        parsed.deliveryAddress || legacyAddress || parsed.deliveryStreet || '',
+      ).trim(),
       deliveryReference: String(parsed.deliveryReference || '').trim(),
     }
   } catch {
@@ -33,6 +43,10 @@ export function loadDeliveryInfoFromSession() {
 
 export function saveDeliveryInfoToSession(info) {
   sessionStorage.setItem(DELIVERY_INFO_STORAGE_KEY, JSON.stringify(info))
+}
+
+export function buildDeliveryAddressForOrder(info) {
+  return String(info?.deliveryAddress || '').trim()
 }
 
 /** Mantém só dígitos; se começar com 55 e tiver 12+ dígitos, usa como está. */
@@ -97,18 +111,13 @@ export function validateDeliveryInfo(info) {
     return { ok: false, message: messages[firstKey] || 'Preencha todos os campos obrigatórios.' }
   }
 
-  const customerName = String(info?.customerName || '').trim()
-  const customerPhone = normalizePhoneDigits(info?.customerPhone)
-  const deliveryAddress = String(info?.deliveryAddress || '').trim()
-  const deliveryReference = String(info?.deliveryReference || '').trim()
-
   return {
     ok: true,
     data: {
-      customerName,
-      customerPhone,
-      deliveryAddress,
-      deliveryReference,
+      customerName: String(info?.customerName || '').trim(),
+      customerPhone: normalizePhoneDigits(info?.customerPhone),
+      deliveryAddress: buildDeliveryAddressForOrder(info),
+      deliveryReference: String(info?.deliveryReference || '').trim(),
     },
   }
 }

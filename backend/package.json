@@ -10,6 +10,7 @@
     "db:init": "psql -U postgres -d pizzaralfs -f sql/init.sql",
     "db:migrate:delivery": "psql -U postgres -d pizzaralfs -f sql/migrate_orders_delivery.sql",
     "db:migrate:pricing": "psql -U postgres -d pizzaralfs -f sql/migrate_delivery_pricing.sql",
+    "db:migrate:km-cep": "psql -U postgres -d pizzaralfs -f sql/migrate_delivery_km_cep.sql",
     "db:seed": "psql -U postgres -d pizzaralfs -f sql/seed.sql"
   },
   "keywords": [],

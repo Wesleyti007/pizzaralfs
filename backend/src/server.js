@@ -5,6 +5,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { loadCategoriesFromDb, saveCategoriesToDb } from './categories.js'
 import { loadCatalogSettings, saveCatalogSettings } from './catalogSettings.js'
+import { composeDeliveryAddress, normalizeCepDigits, quoteDeliveryFee, usesKmDeliveryPricing } from './deliveryKm.js'
 import { query } from './db.js'
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
 
@@ -45,6 +46,11 @@ app.put('/settings', async (req, res) => {
     return res.status(500).json({ message: 'Erro ao salvar configuracoes', detail: error.message })
   }
 })
+
+/* CEP + taxa por km — reativar com ENABLE_KM_CEP_DELIVERY em deliveryKm.js
+app.get('/delivery/cep/:cep', async (req, res) => { ... })
+app.get('/delivery/quote', async (req, res) => { ... })
+*/
 
 app.put('/categories', async (req, res) => {
   const { categories } = req.body
@@ -195,7 +201,8 @@ function normalizePhoneDigits(value) {
 
 const ORDER_RETURNING = `id, table_number AS "tableNumber", order_type AS "orderType",
   customer_name AS "customerName", customer_phone AS "customerPhone",
-  delivery_address AS "deliveryAddress", delivery_reference AS "deliveryReference",
+  customer_cep AS "customerCep", delivery_address AS "deliveryAddress",
+  delivery_reference AS "deliveryReference", delivery_distance_km AS "deliveryDistanceKm",
   items_subtotal AS "itemsSubtotal", delivery_fee AS "deliveryFee",
   observation, total_amount AS "totalAmount", status, created_at AS "createdAt"`
 
@@ -227,7 +234,6 @@ app.post('/orders', async (req, res) => {
   const orderType = resolveOrderType(tableNumber, req.body.orderType)
   const itemsSubtotal = Number(req.body.itemsSubtotal ?? 0)
   const deliveryFee = orderType === 'delivery' ? Math.max(0, Number(req.body.deliveryFee ?? 0)) : 0
-  const totalAmount = Number(req.body.totalAmount ?? itemsSubtotal + deliveryFee)
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: 'Pedido precisa ter itens' })
@@ -239,14 +245,30 @@ app.post('/orders', async (req, res) => {
 
   let customerName = ''
   let customerPhone = ''
+  let customerCep = ''
   let deliveryAddress = ''
   let deliveryReference = ''
+  let deliveryDistanceKm = null
+  let resolvedDeliveryFee = deliveryFee
 
   if (orderType === 'delivery') {
     customerName = String(req.body.customerName ?? '').trim()
     customerPhone = normalizePhoneDigits(req.body.customerPhone)
-    deliveryAddress = String(req.body.deliveryAddress ?? '').trim()
+    customerCep = normalizeCepDigits(req.body.customerCep ?? req.body.cep)
     deliveryReference = String(req.body.deliveryReference ?? '').trim()
+
+    const customerPayload = {
+      cep: customerCep,
+      street: req.body.deliveryStreet ?? req.body.street,
+      number: req.body.deliveryNumber ?? req.body.number,
+      neighborhood: req.body.deliveryNeighborhood ?? req.body.neighborhood,
+      city: req.body.deliveryCity ?? req.body.city,
+      state: req.body.deliveryState ?? req.body.state,
+    }
+
+    deliveryAddress =
+      String(req.body.deliveryAddress ?? '').trim() ||
+      composeDeliveryAddress(customerPayload)
 
     const check = validateDeliveryFields({
       customerName,
@@ -257,26 +279,61 @@ app.post('/orders', async (req, res) => {
     if (!check.ok) {
       return res.status(400).json({ message: check.message })
     }
+
+    const settings = await loadCatalogSettings(query)
+
+    if (usesKmDeliveryPricing(settings)) {
+      if (customerCep.length !== 8) {
+        return res.status(400).json({ message: 'Informe o CEP de entrega' })
+      }
+
+      try {
+        const quote = await quoteDeliveryFee(settings, customerPayload)
+        resolvedDeliveryFee = quote.fee
+        deliveryDistanceKm = quote.distanceKm
+
+        if (Math.abs(resolvedDeliveryFee - deliveryFee) > 0.02) {
+          return res.status(400).json({
+            message: 'Taxa de entrega desatualizada. Atualize o carrinho e tente de novo.',
+          })
+        }
+      } catch (quoteError) {
+        return res.status(400).json({
+          message: quoteError.message || 'Nao foi possivel calcular taxa de entrega',
+        })
+      }
+    } else {
+      resolvedDeliveryFee = Math.max(0, Number(settings.deliveryFee) || 0)
+      if (Math.abs(resolvedDeliveryFee - deliveryFee) > 0.02) {
+        return res.status(400).json({
+          message: 'Taxa de entrega desatualizada. Atualize o carrinho e tente de novo.',
+        })
+      }
+    }
   }
+
+  const totalAmount = Number(req.body.totalAmount ?? itemsSubtotal + resolvedDeliveryFee)
 
   try {
     const orderResult = await query(
       `INSERT INTO orders (
-         table_number, order_type, customer_name, customer_phone,
-         delivery_address, delivery_reference, items_subtotal, delivery_fee,
-         observation, total_amount
+         table_number, order_type, customer_name, customer_phone, customer_cep,
+         delivery_address, delivery_reference, delivery_distance_km,
+         items_subtotal, delivery_fee, observation, total_amount
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING ${ORDER_RETURNING}`,
       [
         orderType === 'table' ? tableNumber : null,
         orderType,
         customerName,
         customerPhone,
+        customerCep,
         deliveryAddress,
         deliveryReference,
+        deliveryDistanceKm,
         itemsSubtotal,
-        deliveryFee,
+        resolvedDeliveryFee,
         observation ?? '',
         totalAmount,
       ],
@@ -521,7 +578,7 @@ if (process.env.NODE_ENV === 'production') {
       },
     }),
   )
-  app.get(/^(?!\/(health|categories|menu-items|orders|settings)(\/|$)).*/, (_req, res) => {
+  app.get(/^(?!\/(health|categories|menu-items|orders|settings|delivery)(\/|$)).*/, (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
     res.sendFile(path.join(distPath, 'index.html'))
   })
