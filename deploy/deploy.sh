@@ -11,19 +11,19 @@ REMOTE_DIR="${REMOTE_DIR:-/opt/pizza-ralfs}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+echo "==> Build do frontend no Mac"
+cd "$PROJECT_ROOT"
+npm run build
+
 echo "==> Enviando projeto para ${VPS_USER}@${VPS_HOST}:${REMOTE_DIR}/"
 rsync -avz \
   --exclude node_modules \
-  --exclude dist \
   --exclude .git \
   --exclude deploy/pgdata \
   --exclude '.env' \
   "$PROJECT_ROOT/" "${VPS_USER}@${VPS_HOST}:${REMOTE_DIR}/"
 
-echo "==> Rebuild e restart no VPS"
-ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/deploy && docker compose up -d --build"
-
-echo "==> Migracoes SQL (idempotentes; ignora colunas ja existentes)"
+echo "==> Migracoes SQL no VPS"
 MIGRATIONS=(
   migrate_categories.sql
   migrate_pizza_sizes.sql
@@ -39,6 +39,10 @@ for migration in "${MIGRATIONS[@]}"; do
     "cd ${REMOTE_DIR}/deploy && docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/${migration}" \
     || echo "    (aviso: ${migration} pode ja estar aplicada)"
 done
+
+echo "==> Reiniciar app e Caddy no VPS (usa dist/ e backend/src/ do disco)"
+ssh "${VPS_USER}@${VPS_HOST}" \
+  "cd ${REMOTE_DIR}/deploy && docker compose up -d --force-recreate app && docker compose restart caddy"
 
 echo "==> Status dos containers"
 ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/deploy && docker compose ps"

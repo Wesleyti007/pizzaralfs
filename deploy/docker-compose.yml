@@ -28,11 +28,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
+      APP_RELEASE: ${APP_RELEASE:-20260531}
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: pizzaralfs
       DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: pizzaralfs
+    volumes:
+      # Permite publicar com rsync + build no Mac (sem rebuild Docker quando Hub falha)
+      - ../dist:/app/dist:ro
+      - ../backend/src:/app/backend/src:ro
     depends_on:
       db:
         condition: service_healthy

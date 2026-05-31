@@ -167,6 +167,36 @@ cd /opt/pizza-ralfs
 git pull
 ```
 
+### Problema: `docker build` falha (timeout registry-1.docker.io)
+
+No VPS, DNS do Docker pode falhar. Opções:
+
+**A — Corrigir DNS e buildar no VPS:**
+```bash
+bash /opt/pizza-ralfs/deploy/corrigir-dns-docker.sh
+cd /opt/pizza-ralfs/deploy
+docker compose build --no-cache app
+docker compose up -d --force-recreate app
+```
+
+**B — Build no Mac e só reiniciar no VPS (recomendado se Hub falhar):**
+
+No Mac:
+```bash
+chmod +x deploy/publicar-do-mac.sh
+./deploy/publicar-do-mac.sh
+```
+
+O `docker-compose.yml` monta `dist/` e `backend/src/` do disco — **não precisa** `docker build` a cada atualização.
+
+Confirme que o `rsync` enviou **vários MB** (não só 233 bytes). No VPS:
+```bash
+grep admin/ralfs /opt/pizza-ralfs/src/App.jsx | head -1
+du -sh /opt/pizza-ralfs/dist
+```
+
+---
+
 ### 2 — Tudo de uma vez no Mac (recomendado)
 
 Na pasta do projeto, com SSH configurado para o VPS:

@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "build:preview": "npm run build && npm run preview",
-    "deploy": "bash deploy/deploy.sh"
+    "deploy": "bash deploy/deploy.sh",
+    "deploy:build": "npm run build && npm run deploy"
   },
   "dependencies": {
     "qrcode.react": "^4.2.0",

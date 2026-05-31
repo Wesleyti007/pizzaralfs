@@ -1,0 +1,88 @@
+================================================================================
+  ATUALIZAR VPS — MIGRATION + DEPLOY (ordem certa)
+================================================================================
+
+  [MAC]  Terminal no SEU computador (NAO dentro do SSH)
+  [VPS]  Terminal SSH: root@161.97.100.78
+
+================================================================================
+OPCAO A — Tudo no Mac (mais facil, 1 comando)
+================================================================================
+
+  No Mac, na pasta do projeto:
+
+  cd /Users/coinfocoinfo/Documents/PizzaRalfs
+  npm run build
+  npm run deploy
+
+  (pede senha SSH do VPS 2–3 vezes)
+
+================================================================================
+OPCAO B — Passo a passo manual
+================================================================================
+
+--- PASSO 1 — MAC: build + enviar arquivos ---
+
+  cd /Users/coinfocoinfo/Documents/PizzaRalfs
+  npm run build
+  rsync -avz \
+    --exclude node_modules \
+    --exclude .git \
+    --exclude deploy/pgdata \
+    --exclude '.env' \
+    ./ root@161.97.100.78:/opt/pizza-ralfs/
+
+  OK se listar src/, dist/, deploy/, backend/ (varios MB).
+  ERRO se so "sent 230 bytes" — voce rodou no VPS, nao no Mac!
+
+--- PASSO 2 — VPS: migracoes do banco (uma vez por atualizacao) ---
+
+  ssh root@161.97.100.78
+  cd /opt/pizza-ralfs/deploy
+
+  for f in migrate_categories.sql migrate_pizza_sizes.sql migrate_orders_status.sql \
+    migrate_orders_delivery.sql migrate_delivery_pricing.sql migrate_delivery_km_cep.sql \
+    migrate_menu_item_active.sql; do
+    echo "==> $f"
+    docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/$f
+  done
+
+  (Se disser "already exists", pode ignorar.)
+
+--- PASSO 3 — VPS: deploy (reiniciar site com arquivos novos) ---
+
+  cd /opt/pizza-ralfs/deploy
+
+  # Confira .env (nano .env) — ADMIN_PASSWORD, APP_RELEASE=20260531
+
+  docker compose up -d --force-recreate app
+  docker compose restart caddy
+  docker compose ps
+
+--- PASSO 4 — VPS: conferir ---
+
+  curl -s http://127.0.0.1:3001/health
+  grep -o 'assets/index-[^"]*\.js' /opt/pizza-ralfs/dist/index.html
+
+  Esperado:
+    "release":"20260531" no health
+    JS novo (nao index-B1_4DoIy.js)
+
+--- PASSO 5 — Navegador (aba anonima) ---
+
+  https://pizzaralfs.com.br/admin/ralfs
+  usuario: admin
+  senha: 25364758@Cd  (ou ADMIN_PASSWORD do .env)
+
+================================================================================
+RESUMO DA ORDEM
+================================================================================
+
+  1. Mac: npm run build
+  2. Mac: rsync  (envia codigo + dist)
+  3. VPS: migracoes SQL
+  4. VPS: docker compose up -d --force-recreate app
+  5. VPS: docker compose restart caddy
+  6. Testar /health e /admin/ralfs
+
+================================================================================

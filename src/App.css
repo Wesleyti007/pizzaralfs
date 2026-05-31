@@ -750,25 +750,36 @@ body.home-splash-active .brand-header {
 }
 
 .card-media--placeholder {
-  --placeholder-logo: url('/logo-ralfs.png');
-  background-color: #eadfce;
-  background-image:
-    var(--placeholder-logo),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80' fill='none'%3E%3Ccircle cx='40' cy='40' r='34' fill='%23f5ebe0' stroke='%23c5a059' stroke-width='2.5'/%3E%3Ccircle cx='28' cy='32' r='5' fill='%23c5a059' opacity='0.45'/%3E%3Ccircle cx='48' cy='30' r='4' fill='%23c5a059' opacity='0.4'/%3E%3Ccircle cx='40' cy='48' r='4.5' fill='%23c5a059' opacity='0.35'/%3E%3C/svg%3E"),
-    radial-gradient(ellipse 75% 60% at 50% 42%, rgba(197, 160, 89, 0.35) 0%, transparent 68%),
-    linear-gradient(155deg, #fdfaf5 0%, #ede4d4 50%, #dcc9ad 100%);
-  background-size:
-    34% auto,
-    28% auto,
-    100% 100%,
-    100% 100%;
-  background-position:
-    center,
-    center 58%,
-    center,
-    center;
-  background-repeat: no-repeat;
-  box-shadow: inset 0 0 0 1px rgba(197, 160, 89, 0.2);
+  --placeholder-logo: url('/logo-ralfs-web.png');
+  background: linear-gradient(160deg, #faf8f4 0%, #f3ebe0 50%, #e8dfd0 100%);
+}
+
+/* Moldura circular suave */
+.card-media--placeholder::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(56%, 11.5rem);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px dashed rgba(197, 160, 89, 0.32);
+  pointer-events: none;
+}
+
+/* Logo como marca d'água, centralizado dentro do círculo */
+.card-media--placeholder::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(46%, 9.5rem);
+  aspect-ratio: 1;
+  background: var(--placeholder-logo) center / contain no-repeat;
+  opacity: 0.22;
+  pointer-events: none;
 }
 
 .admin-item-thumb {
@@ -782,14 +793,18 @@ body.home-splash-active .brand-header {
 }
 
 .admin-item-thumb--placeholder {
-  --placeholder-logo: url('/logo-ralfs.png');
-  background-color: #eadfce;
-  background-image:
-    var(--placeholder-logo),
-    linear-gradient(155deg, #fdfaf5 0%, #e5d9c4 100%);
-  background-size: 78% auto, 100% 100%;
-  background-position: center, center;
-  background-repeat: no-repeat;
+  --placeholder-logo: url('/logo-ralfs-web.png');
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(160deg, #faf8f4 0%, #ebe3d4 100%);
+}
+
+.admin-item-thumb--placeholder::before {
+  content: '';
+  position: absolute;
+  inset: 8%;
+  background: var(--placeholder-logo) center / contain no-repeat;
+  opacity: 0.24;
 }
 
 .card h3 {
