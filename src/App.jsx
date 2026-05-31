@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import {
@@ -27,7 +35,15 @@ import {
   patchOrderStatus,
   todayDateInputValue,
 } from './orders.js'
+import {
+  loadOrderAlertSettings,
+  playNewOrderSound,
+  primeOrderAlertAudio,
+  requestBrowserNotificationPermission,
+  saveOrderAlertSettings,
+} from './orderAlerts.js'
 import { printOrderDocument } from './orderPrint.js'
+import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
 import { downloadOrderReceiptImage } from './orderReceiptImage.js'
 import { PizzaSlicePicker } from './PizzaSlicePicker.jsx'
@@ -1526,6 +1542,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
       }
 
       showOrderSuccess(orderToSave)
+      void downloadReceipt(orderToSave)
     } catch {
       setOrderMessage('Sem conexão com o servidor. Verifique a internet e tente de novo.')
     } finally {
@@ -1650,8 +1667,8 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
             </span>
             {orderMessage && <p className="order-success-note">{orderMessage}</p>}
             <span className="last-order-banner-hint">
-              Baixe o comprovante em imagem agora. Ao atualizar a página ou sair do cardápio, ele
-              não ficará mais disponível.
+              O comprovante em PNG deve baixar automaticamente. Se não baixar, use o botão abaixo.
+              Ao atualizar a página, ele não ficará mais disponível.
             </span>
             <button
               type="button"
@@ -1659,7 +1676,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
               disabled={isDownloadingReceipt}
               onClick={() => downloadReceipt(receiptOrder)}
             >
-              {isDownloadingReceipt ? 'Gerando imagem...' : 'Baixar comprovante (PNG)'}
+              {isDownloadingReceipt ? 'Gerando imagem...' : 'Baixar comprovante novamente (PNG)'}
             </button>
           </div>
         )}
@@ -2100,32 +2117,19 @@ function OrdersPage() {
   const [orders, setOrders] = useState([])
   const [filter, setFilter] = useState('pending')
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [actionId, setActionId] = useState(null)
   const [editingOrderId, setEditingOrderId] = useState(null)
   const [cancelModal, setCancelModal] = useState(null)
   const [successModal, setSuccessModal] = useState(null)
-
-  const loadOrders = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const response = await fetch(`${API_BASE_URL}/orders`)
-      if (!response.ok) throw new Error('Falha ao carregar pedidos')
-      const data = await response.json()
-      setOrders(Array.isArray(data) ? data : [])
-    } catch (loadError) {
-      setError(formatApiError(loadError, 'Não foi possível carregar pedidos.'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadOrders()
-    const timer = window.setInterval(loadOrders, 15000)
-    return () => window.clearInterval(timer)
-  }, [])
+  const [alertSettings, setAlertSettings] = useState(() => loadOrderAlertSettings())
+  const [printArmed, setPrintArmed] = useState(false)
+  const [notificationPermission, setNotificationPermission] = useState(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
+  )
+  const [newOrderBanner, setNewOrderBanner] = useState(null)
+  const [audioPrimed, setAudioPrimed] = useState(false)
 
   const fetchOrderItems = async (orderId) => {
     const response = await fetch(`${API_BASE_URL}/orders/${orderId}/items`)
@@ -2141,7 +2145,7 @@ function OrdersPage() {
     )
   }
 
-  const handlePrint = async (order) => {
+  const printOrderById = useCallback(async (order) => {
     if (isOrderCancelled(order.status)) return
 
     setActionId(order.id)
@@ -2155,9 +2159,96 @@ function OrdersPage() {
       }
     } catch (printError) {
       setError(formatApiError(printError, 'Não foi possível imprimir o pedido.'))
+      throw printError
     } finally {
       setActionId(null)
     }
+  }, [])
+
+  const { syncOrdersSnapshot } = useOrderAlerts({
+    settings: { ...alertSettings, printArmed },
+    onAutoPrint: printOrderById,
+  })
+
+  const loadOrders = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!silent) {
+        setLoading(true)
+      } else {
+        setRefreshing(true)
+      }
+      if (!silent) setError('')
+      try {
+        const response = await fetch(`${API_BASE_URL}/orders`)
+        if (!response.ok) throw new Error('Falha ao carregar pedidos')
+        const data = await response.json()
+        const list = Array.isArray(data) ? data : []
+        setOrders(list)
+        const pendingNew = syncOrdersSnapshot(list)
+        if (pendingNew.length > 0) {
+          const ids = pendingNew.map((order) => order.id).join(', ')
+          setNewOrderBanner({
+            text:
+              pendingNew.length === 1
+                ? `Novo pedido #${ids} recebido!`
+                : `${pendingNew.length} pedidos novos (#${ids})`,
+          })
+          window.setTimeout(() => setNewOrderBanner(null), 12000)
+        }
+      } catch (loadError) {
+        setError(formatApiError(loadError, 'Não foi possível carregar pedidos.'))
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [syncOrdersSnapshot],
+  )
+
+  useEffect(() => {
+    loadOrders()
+    const intervalMs = Math.max(3000, (alertSettings.pollSeconds || 5) * 1000)
+    const timer = window.setInterval(() => loadOrders({ silent: true }), intervalMs)
+    return () => window.clearInterval(timer)
+  }, [loadOrders, alertSettings.pollSeconds])
+
+  useEffect(() => {
+    const primeOnInteraction = () => {
+      void primeOrderAlertAudio().then((ok) => {
+        if (ok) setAudioPrimed(true)
+      })
+    }
+    document.addEventListener('click', primeOnInteraction, { once: true })
+    document.addEventListener('keydown', primeOnInteraction, { once: true })
+    return () => {
+      document.removeEventListener('click', primeOnInteraction)
+      document.removeEventListener('keydown', primeOnInteraction)
+    }
+  }, [])
+
+  const updateAlertSettings = (patch) => {
+    setAlertSettings((current) => {
+      const next = { ...current, ...patch }
+      saveOrderAlertSettings(next)
+      return next
+    })
+  }
+
+  const handleEnableNotifications = async () => {
+    const result = await requestBrowserNotificationPermission()
+    setNotificationPermission(result)
+    if (result === 'granted') {
+      updateAlertSettings({ notifyEnabled: true })
+    }
+  }
+
+  const handleArmAutoPrint = () => {
+    setPrintArmed(true)
+    void primeOrderAlertAudio().then(() => playNewOrderSound())
+  }
+
+  const handlePrint = async (order) => {
+    await printOrderById(order)
   }
 
   const handleMarkPrinted = async (order) => {
@@ -2236,12 +2327,103 @@ function OrdersPage() {
       <header className="orders-page-header">
         <div>
           <h2>Pedidos</h2>
-          <p>Impressora térmica (bobina 80 mm). Duas vias no mesmo cupom; ao imprimir, marca como impresso.</p>
+          <p>
+            Bobina 80 mm, 2 vias. Deixe esta aba aberta: novos pedidos disparam alerta e podem
+            imprimir sozinhos (veja opções abaixo).
+          </p>
         </div>
-        <button type="button" className="admin-btn admin-btn-outline" onClick={loadOrders} disabled={loading}>
-          {loading ? 'Atualizando...' : 'Atualizar'}
+        <button
+          type="button"
+          className="admin-btn admin-btn-outline"
+          onClick={() => loadOrders({ silent: false })}
+          disabled={loading}
+        >
+          {loading ? 'Atualizando...' : refreshing ? 'Sincronizando...' : 'Atualizar'}
         </button>
       </header>
+
+      <section className="orders-alert-panel" aria-label="Alertas de novos pedidos">
+        <div className="orders-alert-toggles">
+          <label className="orders-alert-toggle">
+            <input
+              type="checkbox"
+              checked={alertSettings.notifyEnabled}
+              onChange={(event) => {
+                const enabled = event.target.checked
+                updateAlertSettings({ notifyEnabled: enabled })
+                if (enabled && notificationPermission !== 'granted') {
+                  void handleEnableNotifications()
+                }
+              }}
+            />
+            <span>Notificar pedido novo (som + alerta)</span>
+          </label>
+          <label className="orders-alert-toggle">
+            <input
+              type="checkbox"
+              checked={alertSettings.soundEnabled}
+              onChange={(event) => updateAlertSettings({ soundEnabled: event.target.checked })}
+            />
+            <span>Som</span>
+          </label>
+          <label className="orders-alert-toggle">
+            <input
+              type="checkbox"
+              checked={alertSettings.autoPrintEnabled}
+              onChange={(event) => updateAlertSettings({ autoPrintEnabled: event.target.checked })}
+            />
+            <span>Imprimir automaticamente</span>
+          </label>
+        </div>
+        <div className="orders-alert-actions">
+          {notificationPermission !== 'granted' && (
+            <button
+              type="button"
+              className="admin-btn admin-btn-outline"
+              onClick={() => void handleEnableNotifications()}
+            >
+              Permitir notificações do navegador
+            </button>
+          )}
+          {alertSettings.autoPrintEnabled && !printArmed && (
+            <button type="button" className="admin-btn admin-btn-primary" onClick={handleArmAutoPrint}>
+              Ativar impressão automática (1 clique)
+            </button>
+          )}
+          {alertSettings.autoPrintEnabled && printArmed && (
+            <span className="orders-alert-armed">Impressão automática ativa</span>
+          )}
+          <label className="orders-alert-poll">
+            <span className="orders-alert-poll-label">Verificar a cada</span>
+            <select
+              value={String(alertSettings.pollSeconds)}
+              onChange={(event) =>
+                updateAlertSettings({ pollSeconds: Number(event.target.value) })
+              }
+            >
+              <option value="3">3 s</option>
+              <option value="5">5 s</option>
+              <option value="10">10 s</option>
+              <option value="15">15 s</option>
+            </select>
+          </label>
+        </div>
+        {!audioPrimed && (
+          <p className="orders-alert-audio-hint">
+            Clique em qualquer lugar desta página para liberar o som no navegador.
+          </p>
+        )}
+        {newOrderBanner && (
+          <p className="orders-new-order-banner" role="status" aria-live="assertive">
+            {newOrderBanner.text}
+          </p>
+        )}
+        <p className="orders-alert-hint">
+          Mantenha esta página aberta no PC da cozinha. A impressão automática abre o diálogo do
+          navegador; para imprimir sem clicar em &quot;Imprimir&quot;, use Chrome com impressora
+          padrão e a flag <code>--kiosk-printing</code> no atalho do navegador.
+        </p>
+      </section>
 
       {error && <p className="orders-page-error">{error}</p>}
 

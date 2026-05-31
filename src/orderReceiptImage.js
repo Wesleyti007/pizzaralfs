@@ -1,3 +1,5 @@
+import { formatPhoneDisplay, isDeliveryOrder } from './delivery.js'
+
 const RECEIPT_WIDTH = 420
 const PADDING = 28
 const LINE_HEIGHT = 22
@@ -187,8 +189,12 @@ export function downloadOrderReceiptImage(order) {
         const link = document.createElement('a')
         link.href = url
         link.download = `comprovante-pedido-${order.id}.png`
+        link.rel = 'noopener'
+        link.style.display = 'none'
+        document.body.appendChild(link)
         link.click()
-        URL.revokeObjectURL(url)
+        document.body.removeChild(link)
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
         resolve()
       },
       'image/png',
