@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   distributeFlavorSlices,
   getMaxFlavorsForSize,
@@ -15,6 +15,81 @@ function slicePath(cx, cy, radius, index, total) {
   const y2 = cy + radius * Math.sin(end)
   const large = (2 * Math.PI) / total > Math.PI ? 1 : 0
   return `M ${cx} ${cy} L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z`
+}
+
+function filterFlavorOptionsBySearch(items, query) {
+  const trimmed = String(query || '').trim().toLowerCase()
+  if (!trimmed) return items
+  return items.filter((item) => item.name.toLowerCase().includes(trimmed))
+}
+
+function PizzaFlavorQuickPick({
+  savoryOptions,
+  sweetOptions,
+  onPick,
+  normalizeItemId,
+  pickerId,
+}) {
+  const [search, setSearch] = useState('')
+  const filteredSavory = useMemo(
+    () => filterFlavorOptionsBySearch(savoryOptions, search),
+    [savoryOptions, search],
+  )
+  const filteredSweet = useMemo(
+    () => filterFlavorOptionsBySearch(sweetOptions, search),
+    [sweetOptions, search],
+  )
+  const hasResults = filteredSavory.length > 0 || filteredSweet.length > 0
+  const showSearch = savoryOptions.length + sweetOptions.length > 8
+
+  const renderGroup = (label, items) => {
+    if (!items.length) return null
+    return (
+      <div className="pizza-flavor-quick-group">
+        <span className="pizza-flavor-quick-group-label">{label}</span>
+        <ul className="pizza-flavor-quick-list">
+          {items.map((item) => (
+            <li key={normalizeItemId(item.id)}>
+              <button
+                type="button"
+                className="pizza-flavor-quick-btn"
+                onClick={() => {
+                  onPick(normalizeItemId(item.id))
+                  setSearch('')
+                }}
+              >
+                {item.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+
+  return (
+    <div className="pizza-flavor-quick-pick">
+      {showSearch && (
+        <input
+          type="search"
+          className="pizza-flavor-quick-search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Buscar sabor..."
+          aria-controls={pickerId}
+          enterKeyHint="search"
+          autoComplete="off"
+        />
+      )}
+      <div id={pickerId} className="pizza-flavor-quick-scroll" role="listbox" aria-label="Sabores disponíveis">
+        {renderGroup('Pizzas salgadas', filteredSavory)}
+        {renderGroup('Pizzas doces', filteredSweet)}
+        {!hasResults && (
+          <p className="pizza-flavor-quick-empty">Nenhum sabor encontrado.</p>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export function PizzaSlicePicker({
@@ -40,12 +115,16 @@ export function PizzaSlicePicker({
 
   const filledCount = selectedFlavors.length
 
-  const availableOptions = otherPizzaOptions.filter(
-    (item) => !selectedFlavors.some((flavor) => sameItemId(flavor.id, item.id)),
+  const availableOptions = useMemo(
+    () =>
+      otherPizzaOptions.filter(
+        (item) => !selectedFlavors.some((flavor) => sameItemId(flavor.id, item.id)),
+      ),
+    [otherPizzaOptions, selectedFlavors, sameItemId],
   )
-  const { savory: savoryOptions, sweet: sweetOptions } = groupPizzaFlavorOptions(
-    availableOptions,
-    categories,
+  const { savory: savoryOptions, sweet: sweetOptions } = useMemo(
+    () => groupPizzaFlavorOptions(availableOptions, categories),
+    [availableOptions, categories],
   )
 
   const pizzaVisual = (
@@ -135,40 +214,16 @@ export function PizzaSlicePicker({
 
           {canAddMore && (
             <div className="pizza-add-flavor">
-              <label className="pizza-half-flavor-label" htmlFor="pizza-add-flavor-select">
+              <p className="pizza-half-flavor-label" id="pizza-add-flavor-label">
                 Adicionar sabor ({selectedFlavors.length}/{maxFlavors})
-              </label>
-              <select
-                id="pizza-add-flavor-select"
-                className="pizza-half-flavor-select"
-                defaultValue=""
-                onChange={(event) => {
-                  const value = event.target.value
-                  if (!value) return
-                  onAddFlavor(value)
-                  event.target.value = ''
-                }}
-              >
-                <option value="">Escolha outro sabor</option>
-                {savoryOptions.length > 0 && (
-                  <optgroup label="Pizzas salgadas">
-                    {savoryOptions.map((item) => (
-                      <option key={item.id} value={normalizeItemId(item.id)}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {sweetOptions.length > 0 && (
-                  <optgroup label="Pizzas doces">
-                    {sweetOptions.map((item) => (
-                      <option key={item.id} value={normalizeItemId(item.id)}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+              </p>
+              <PizzaFlavorQuickPick
+                pickerId="pizza-add-flavor-list"
+                savoryOptions={savoryOptions}
+                sweetOptions={sweetOptions}
+                normalizeItemId={normalizeItemId}
+                onPick={onAddFlavor}
+              />
               <p className="pizza-half-hint">
                 {sizeId === 'media'
                   ? 'Média: até 2 sabores (pode misturar salgada e doce).'

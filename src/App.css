@@ -1205,6 +1205,86 @@ body.home-splash-active .brand-header {
   gap: 6px;
 }
 
+.pizza-flavor-quick-pick {
+  display: grid;
+  gap: 8px;
+}
+
+.pizza-flavor-quick-search {
+  width: 100%;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 16px;
+  background: #fff;
+  color: var(--brand-dark);
+}
+
+.pizza-flavor-quick-scroll {
+  max-height: 10.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: grid;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid rgba(197, 160, 89, 0.35);
+  border-radius: 10px;
+  background: #fff;
+  touch-action: pan-y;
+}
+
+.pizza-flavor-quick-group {
+  display: grid;
+  gap: 6px;
+}
+
+.pizza-flavor-quick-group-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--brand-text-muted);
+}
+
+.pizza-flavor-quick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.pizza-flavor-quick-btn {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid rgba(197, 160, 89, 0.28);
+  border-radius: 8px;
+  background: #faf8f4;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--brand-dark);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.pizza-flavor-quick-btn:active {
+  background: #f0e6d4;
+  border-color: rgba(197, 160, 89, 0.55);
+}
+
+.pizza-flavor-quick-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--brand-text-muted);
+  text-align: center;
+  padding: 8px 4px;
+}
+
 .btn-add:disabled {
   opacity: 0.55;
   cursor: not-allowed;
