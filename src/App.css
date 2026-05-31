@@ -572,11 +572,13 @@ body.home-splash-active .brand-header {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
+  min-height: 140px;
   margin-bottom: 10px;
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid rgba(197, 160, 89, 0.28);
   background: #ebe6dc;
+  contain: layout paint;
 }
 
 .card-media .card-image {

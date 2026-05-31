@@ -10,7 +10,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build:preview": "npm run build && npm run preview"
+    "build:preview": "npm run build && npm run preview",
+    "deploy": "bash deploy/deploy.sh"
   },
   "dependencies": {
     "qrcode.react": "^4.2.0",

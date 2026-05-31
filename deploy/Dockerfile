@@ -9,6 +9,7 @@ ENV VITE_API_URL=
 RUN npm run build
 
 FROM node:20-alpine
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN cd backend && npm ci --omit=dev

@@ -85,7 +85,12 @@ import {
   slugify,
 } from './catalog.js'
 import { calcCartTotals, computeMultiFlavorPriceForMode, resolveUnitPrice } from './pricing.js'
-import { MENU_IMAGE_HEIGHT, MENU_IMAGE_WIDTH, normalizeMenuImageFile } from './menuImage.js'
+import {
+  MENU_IMAGE_HEIGHT,
+  MENU_IMAGE_WIDTH,
+  normalizeMenuImageFile,
+  normalizeMenuImageSource,
+} from './menuImage.js'
 
 const STORAGE_KEY = 'pizza-ralfs-menu'
 const CATEGORIES_STORAGE_KEY = 'pizza-ralfs-categories'
@@ -2357,18 +2362,12 @@ function AdminItemFormFields({
         placeholder="Descrição"
         className="field-full"
       />
-      <input
-        name="image"
-        value={form.image}
-        onChange={onChange}
-        placeholder="URL da foto"
-        className="field-full"
-      />
       <label className="file-input-label field-full">
         Foto do produto
-        <input type="file" accept="image/*" onChange={onImageUpload} />
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/*" onChange={onImageUpload} />
         <small className="field-hint">
-          Qualquer tamanho: a foto é ajustada automaticamente para o formato do cardápio.
+          Qualquer tamanho: ao enviar ou salvar, a foto é recortada e redimensionada (800×450) para o
+          cardápio.
         </small>
       </label>
       {showPizzaSizes ? (
@@ -3396,6 +3395,7 @@ function AdminPage({
   const [tableNumber, setTableNumber] = useState('')
   const [isSavingNewItem, setIsSavingNewItem] = useState(false)
   const [isSavingEditItem, setIsSavingEditItem] = useState(false)
+  const [isProcessingImage, setIsProcessingImage] = useState(false)
   const [itemModal, setItemModal] = useState(null)
   const [openItemsCategoryId, setOpenItemsCategoryId] = useState(null)
   const [adminTab, setAdminTab] = useState('itens')
@@ -3454,6 +3454,7 @@ function AdminPage({
     event.target.value = ''
     if (!file) return
 
+    setIsProcessingImage(true)
     try {
       const image = await normalizeMenuImageFile(file)
       setFormState((current) => ({ ...current, image }))
@@ -3464,6 +3465,24 @@ function AdminPage({
         description:
           error instanceof Error ? error.message : 'Não foi possível processar a imagem.',
       })
+    } finally {
+      setIsProcessingImage(false)
+    }
+  }
+
+  const prepareItemPayloadForSave = async (payload) => {
+    if (!payload.image) {
+      return payload
+    }
+    try {
+      const image = await normalizeMenuImageSource(payload.image)
+      return { ...payload, image }
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível ajustar a imagem. Tente outro arquivo JPG/PNG.',
+      )
     }
   }
 
@@ -3596,11 +3615,12 @@ function AdminPage({
 
     setIsSavingNewItem(true)
     try {
-      await createMenuItem(validation.payload)
+      const payload = await prepareItemPayloadForSave(validation.payload)
+      await createMenuItem(payload)
       setItemModal({
         variant: 'success',
         title: 'Salvo',
-        description: `"${validation.payload.name}" foi cadastrado.`,
+        description: `"${payload.name}" foi cadastrado.`,
       })
       resetNewItemForm()
       setAdminTab('itens')
@@ -3625,12 +3645,13 @@ function AdminPage({
 
     setIsSavingEditItem(true)
     try {
-      await updateMenuItem(editingId, validation.payload)
+      const payload = await prepareItemPayloadForSave(validation.payload)
+      await updateMenuItem(editingId, payload)
       closeEditModal()
       setItemModal({
         variant: 'success',
         title: 'Atualizado',
-        description: `"${validation.payload.name}" foi salvo.`,
+        description: `"${payload.name}" foi salvo.`,
       })
     } catch (error) {
       setItemModal({
@@ -3685,6 +3706,11 @@ function AdminPage({
           deliverySettings={deliverySettings}
           onOpenSettings={() => setAdminTab('entrega')}
         />
+        {isProcessingImage && (
+          <p className="menu-sync-message" role="status">
+            Ajustando imagem para o cardápio...
+          </p>
+        )}
         {menuSyncMessage && (
           <p
             className={`menu-sync-message${

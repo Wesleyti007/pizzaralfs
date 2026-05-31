@@ -7,7 +7,25 @@ import { loadCategoriesFromDb, saveCategoriesToDb } from './categories.js'
 import { loadCatalogSettings, saveCatalogSettings } from './catalogSettings.js'
 import { composeDeliveryAddress, normalizeCepDigits, quoteDeliveryFee, usesKmDeliveryPricing } from './deliveryKm.js'
 import { query } from './db.js'
+import { normalizeMenuImageString } from './menuImage.js'
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
+
+async function buildMenuItemPayloadWithImage(body) {
+  const built = buildMenuItemPayload(body)
+  if (built.error) {
+    return built
+  }
+
+  try {
+    built.payload.image = await normalizeMenuImageString(built.payload.image)
+  } catch (error) {
+    return {
+      error: error.message || 'Nao foi possivel processar a imagem.',
+    }
+  }
+
+  return built
+}
 
 dotenv.config()
 
@@ -80,7 +98,7 @@ app.get('/menu-items', async (_req, res) => {
 })
 
 app.post('/menu-items', async (req, res) => {
-  const built = buildMenuItemPayload(req.body)
+  const built = await buildMenuItemPayloadWithImage(req.body)
   if (built.error) {
     return res.status(400).json({ message: built.error })
   }
@@ -116,7 +134,7 @@ app.put('/menu-items/:id', async (req, res) => {
     return res.status(400).json({ message: 'ID invalido' })
   }
 
-  const built = buildMenuItemPayload(req.body)
+  const built = await buildMenuItemPayloadWithImage(req.body)
   if (built.error) {
     return res.status(400).json({ message: built.error })
   }
