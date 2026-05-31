@@ -11,6 +11,7 @@
     "db:migrate:delivery": "psql -U postgres -d pizzaralfs -f sql/migrate_orders_delivery.sql",
     "db:migrate:pricing": "psql -U postgres -d pizzaralfs -f sql/migrate_delivery_pricing.sql",
     "db:migrate:km-cep": "psql -U postgres -d pizzaralfs -f sql/migrate_delivery_km_cep.sql",
+    "db:migrate:active": "psql -U postgres -d pizzaralfs -f sql/migrate_menu_item_active.sql",
     "db:seed": "psql -U postgres -d pizzaralfs -f sql/seed.sql"
   },
   "keywords": [],
@@ -20,6 +21,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "multer": "^2.1.1",
     "pg": "^8.21.0",
     "sharp": "^0.34.5"
   }

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import {
   distributeFlavorSlices,
   getMaxFlavorsForSize,
+  groupPizzaFlavorOptions,
   PIZZA_FLAVOR_COLORS,
 } from './catalog.js'
 
@@ -22,6 +23,7 @@ export function PizzaSlicePicker({
   primaryFlavor,
   selectedFlavors,
   otherPizzaOptions,
+  categories = [],
   onAddFlavor,
   onRemoveFlavor,
   normalizeItemId,
@@ -41,6 +43,10 @@ export function PizzaSlicePicker({
 
   const availableOptions = otherPizzaOptions.filter(
     (item) => !selectedFlavors.some((flavor) => sameItemId(flavor.id, item.id)),
+  )
+  const { savory: savoryOptions, sweet: sweetOptions } = groupPizzaFlavorOptions(
+    availableOptions,
+    categories,
   )
 
   const pizzaVisual = (
@@ -148,16 +154,29 @@ export function PizzaSlicePicker({
                 }}
               >
                 <option value="">Escolha outro sabor</option>
-                {availableOptions.map((item) => (
-                  <option key={item.id} value={normalizeItemId(item.id)}>
-                    {item.name}
-                  </option>
-                ))}
+                {savoryOptions.length > 0 && (
+                  <optgroup label="Pizzas salgadas">
+                    {savoryOptions.map((item) => (
+                      <option key={item.id} value={normalizeItemId(item.id)}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {sweetOptions.length > 0 && (
+                  <optgroup label="Pizzas doces">
+                    {sweetOptions.map((item) => (
+                      <option key={item.id} value={normalizeItemId(item.id)}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <p className="pizza-half-hint">
                 {sizeId === 'media'
-                  ? 'Média: até 2 sabores. Cobrado o valor do sabor mais caro.'
-                  : 'Grande: até 4 sabores. Cobrado o valor do sabor mais caro.'}
+                  ? 'Média: até 2 sabores (pode misturar salgada e doce).'
+                  : 'Grande: até 4 sabores (pode misturar salgada e doce).'}
               </p>
             </div>
           )}

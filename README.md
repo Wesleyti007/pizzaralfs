@@ -6,7 +6,7 @@ Sistema de cardápio e pedidos para pizzaria: o cliente monta o pedido pelo celu
 
 - **Cardápio** por categoria e subcategoria (ex.: Pizzas → Doces, Premium)
 - **Pizzas** com tamanhos (Broto, Média, Grande) e preço por tamanho
-- **Meia a meia**: cobra o valor do sabor mais caro no tamanho escolhido
+- **Meia a meia / múltiplos sabores** (Média e Grande; pode misturar salgada e doce)
 - **Carrinho** e envio de pedido com identificação de mesa (QR Code)
 - **Painel admin**: cadastro de itens, categorias, mesas e impressão de QR Codes
 - **Pedidos** (`/pedidos`): lista para impressão em 2 vias, status impresso / não impresso

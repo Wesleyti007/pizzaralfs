@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   delivery_price NUMERIC(10,2),
   sizes JSONB NOT NULL DEFAULT '[]'::jsonb,
   image_base64 TEXT NOT NULL DEFAULT '',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(category);
+CREATE INDEX IF NOT EXISTS idx_menu_items_active ON menu_items(is_active);
 CREATE INDEX IF NOT EXISTS idx_menu_items_subcategory ON menu_items(category, subcategory);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 

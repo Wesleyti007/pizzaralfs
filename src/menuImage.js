@@ -1,6 +1,7 @@
 /** Proporção e tamanho usados nos cards do cardápio (16:9). */
 export const MENU_IMAGE_WIDTH = 800
 export const MENU_IMAGE_HEIGHT = 450
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 const JPEG_QUALITY = 0.82
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i
@@ -27,7 +28,7 @@ function loadImage(src) {
     img.onerror = () =>
       reject(
         new Error(
-          'Não foi possível abrir a imagem. Use JPG ou PNG (no iPhone: Ajustes > Câmera > Formatos > Mais compatível).',
+          'Não foi possível abrir a imagem. Use JPG ou PNG (no iPhone: Ajustes > Câmera > Mais compatível).',
         ),
       )
     img.src = src
@@ -80,8 +81,35 @@ function drawNormalizedImage(img, width, height) {
   return canvas.toDataURL('image/jpeg', JPEG_QUALITY)
 }
 
+/** Envia o arquivo para a API (sharp no servidor) — mais confiável que só o navegador. */
+export async function uploadMenuImageFile(file) {
+  if (!isImageUploadFile(file)) {
+    throw new Error('Selecione um arquivo de imagem (JPG, PNG ou WebP).')
+  }
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error('Imagem muito grande. Use um arquivo de até 15 MB.')
+  }
+
+  const formData = new FormData()
+  formData.append('image', file)
+
+  const response = await fetch(`${API_BASE_URL}/menu-items/process-image`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(body.message || 'Não foi possível processar a imagem no servidor.')
+  }
+  if (!body.image) {
+    throw new Error('Resposta inválida ao processar imagem.')
+  }
+  return body.image
+}
+
 /**
- * Recorta (centro), redimensiona e comprime para o cardápio.
+ * Recorta (centro), redimensiona e comprime (fallback local).
  */
 export async function normalizeMenuImageFile(
   file,
@@ -94,22 +122,23 @@ export async function normalizeMenuImageFile(
     throw new Error('Imagem muito grande. Use um arquivo de até 15 MB.')
   }
 
-  const dataUrl = await readFileAsDataUrl(file)
-  const img = await loadImage(dataUrl)
-
-  if (!img.naturalWidth || !img.naturalHeight) {
-    throw new Error('Não foi possível ler as dimensões da imagem.')
+  try {
+    return await uploadMenuImageFile(file)
+  } catch (apiError) {
+    const dataUrl = await readFileAsDataUrl(file)
+    const img = await loadImage(dataUrl)
+    if (!img.naturalWidth || !img.naturalHeight) {
+      throw apiError
+    }
+    const normalized = drawNormalizedImage(img, width, height)
+    if (!normalized || normalized.length < 32) {
+      throw apiError
+    }
+    return normalized
   }
-
-  const normalized = drawNormalizedImage(img, width, height)
-  if (!normalized || normalized.length < 32) {
-    throw new Error('Não foi possível gerar a imagem.')
-  }
-
-  return normalized
 }
 
-/** Reprocessa data URL (ex.: colada no campo URL) antes de salvar. */
+/** Reprocessa data URL antes de salvar. */
 export async function normalizeMenuImageSource(imageValue) {
   const raw = String(imageValue || '').trim()
   if (!raw || /^https?:\/\//i.test(raw)) {

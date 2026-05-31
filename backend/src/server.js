@@ -7,8 +7,24 @@ import { loadCategoriesFromDb, saveCategoriesToDb } from './categories.js'
 import { loadCatalogSettings, saveCatalogSettings } from './catalogSettings.js'
 import { composeDeliveryAddress, normalizeCepDigits, quoteDeliveryFee, usesKmDeliveryPricing } from './deliveryKm.js'
 import { query } from './db.js'
-import { normalizeMenuImageString } from './menuImage.js'
+import multer from 'multer'
+import { normalizeMenuImageBuffer, normalizeMenuImageString } from './menuImage.js'
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
+
+const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes,
+  image_base64 AS image, is_active`
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype?.startsWith('image/')) {
+      cb(null, true)
+      return
+    }
+    cb(new Error('Envie um arquivo de imagem (JPG, PNG ou WebP).'))
+  },
+})
 
 async function buildMenuItemPayloadWithImage(body) {
   const built = buildMenuItemPayload(body)
@@ -84,11 +100,27 @@ app.put('/categories', async (req, res) => {
   }
 })
 
-app.get('/menu-items', async (_req, res) => {
+app.post('/menu-items/process-image', imageUpload.single('image'), async (req, res) => {
   try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ message: 'Selecione um arquivo de imagem.' })
+    }
+    const image = await normalizeMenuImageBuffer(req.file.buffer)
+    return res.json({ image })
+  } catch (error) {
+    return res.status(400).json({
+      message: error.message || 'Nao foi possivel processar a imagem.',
+    })
+  }
+})
+
+app.get('/menu-items', async (req, res) => {
+  try {
+    const includeInactive = req.query.all === '1'
     const result = await query(
-      `SELECT id, category, subcategory, name, description, price, delivery_price, sizes, image_base64 AS image
+      `SELECT ${MENU_ITEM_COLUMNS}
        FROM menu_items
+       ${includeInactive ? '' : 'WHERE is_active = TRUE'}
        ORDER BY id DESC`,
     )
     return res.json(result.rows.map((row) => normalizeMenuItemRow(row)))
@@ -107,9 +139,9 @@ app.post('/menu-items', async (req, res) => {
 
   try {
     const result = await query(
-      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, image_base64)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, category, subcategory, name, description, price, delivery_price, sizes, image_base64 AS image`,
+      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, image_base64, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING ${MENU_ITEM_COLUMNS}`,
       [
         payload.category,
         payload.subcategory,
@@ -119,6 +151,7 @@ app.post('/menu-items', async (req, res) => {
         payload.deliveryPrice,
         JSON.stringify(payload.sizes),
         payload.image,
+        payload.isActive !== false,
       ],
     )
     return res.status(201).json(normalizeMenuItemRow(result.rows[0]))
@@ -151,9 +184,10 @@ app.put('/menu-items/:id', async (req, res) => {
            price = $6,
            delivery_price = $7,
            sizes = $8,
-           image_base64 = $9
+           image_base64 = $9,
+           is_active = $10
        WHERE id = $1
-       RETURNING id, category, subcategory, name, description, price, delivery_price, sizes, image_base64 AS image`,
+       RETURNING ${MENU_ITEM_COLUMNS}`,
       [
         itemId,
         payload.category,
@@ -164,6 +198,7 @@ app.put('/menu-items/:id', async (req, res) => {
         payload.deliveryPrice,
         JSON.stringify(payload.sizes),
         payload.image,
+        payload.isActive !== false,
       ],
     )
 
@@ -174,6 +209,33 @@ app.put('/menu-items/:id', async (req, res) => {
     return res.json(normalizeMenuItemRow(result.rows[0]))
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao atualizar produto', detail: error.message })
+  }
+})
+
+app.patch('/menu-items/:id/active', async (req, res) => {
+  const itemId = Number(req.params.id)
+  if (!Number.isInteger(itemId)) {
+    return res.status(400).json({ message: 'ID invalido' })
+  }
+
+  const isActive =
+    typeof req.body?.isActive === 'boolean'
+      ? req.body.isActive
+      : typeof req.body?.active === 'boolean'
+        ? req.body.active
+        : req.body?.isActive !== false && req.body?.active !== false
+
+  try {
+    const result = await query(
+      `UPDATE menu_items SET is_active = $2 WHERE id = $1 RETURNING ${MENU_ITEM_COLUMNS}`,
+      [itemId, isActive],
+    )
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: 'Produto nao encontrado' })
+    }
+    return res.json(normalizeMenuItemRow(result.rows[0]))
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao atualizar status', detail: error.message })
   }
 })
 

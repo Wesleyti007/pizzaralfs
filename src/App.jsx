@@ -55,6 +55,7 @@ import {
   DEFAULT_CATEGORIES,
   catalogPathWithMesa,
   filterMenuByCatalog,
+  filterMenuItemsForAdmin,
   getCategoryLabel,
   persistTableNumber,
   resolveActiveTableNumber,
@@ -68,8 +69,10 @@ import {
   emptySizePrices,
   formatPriceForInput,
   formatPriceRangeLabel,
+  getCombinablePizzaFlavors,
   getMaxFlavorsForSize,
   getPiecesForSize,
+  isCombinablePizzaItem,
   multiFlavorCartKey,
   normalizeFlavorIdList,
   parsePriceInput,
@@ -199,6 +202,53 @@ function cartLineKey(item) {
   return multiFlavorCartKey(getCartFlavorIds(item), item.sizeId || '')
 }
 
+function AdminSearchBar({
+  value,
+  onChange,
+  placeholder = 'Buscar por nome, descrição ou categoria...',
+  resultCount = null,
+  id = 'catalog-search',
+}) {
+  const trimmed = value.trim()
+
+  return (
+    <div className="catalog-search">
+      <label className="catalog-search-label" htmlFor={id}>
+        <span className="catalog-search-prefix" aria-hidden="true">
+          Buscar
+        </span>
+        <input
+          id={id}
+          type="search"
+          className="catalog-search-input"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          autoComplete="off"
+          enterKeyHint="search"
+        />
+        {trimmed && (
+          <button
+            type="button"
+            className="catalog-search-clear"
+            onClick={() => onChange('')}
+            aria-label="Limpar busca"
+          >
+            ×
+          </button>
+        )}
+      </label>
+      {trimmed && resultCount !== null && (
+        <p className="catalog-search-meta" role="status">
+          {resultCount === 0
+            ? 'Nenhum item encontrado.'
+            : `${resultCount} ${resultCount === 1 ? 'item encontrado' : 'itens encontrados'}`}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function formatBRL(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric)) return 'R$ 0,00'
@@ -214,10 +264,50 @@ function formatApiError(error, fallback) {
     message.includes('NetworkError') ||
     message.includes('Load failed')
   ) {
-    return 'API offline. Em outro terminal: cd backend && npm run dev'
+    return 'API offline. Rode: npm run dev:all (ou cd backend && npm run dev)'
   }
 
   return message
+}
+
+async function readApiErrorMessage(response, fallback) {
+  try {
+    const errorBody = await response.json()
+    if (errorBody?.detail) return `${errorBody.message}: ${errorBody.detail}`
+    if (errorBody?.message) return errorBody.message
+  } catch {
+    if (response.status === 404) {
+      return 'Rota da API não encontrada. Reinicie o backend: cd backend && npm run dev'
+    }
+  }
+  return fallback
+}
+
+/** Payload completo para PUT /menu-items/:id (ex.: fallback ao ativar/desativar). */
+function buildMenuItemApiPayload(item, isActive) {
+  const payload = {
+    category: item.category,
+    subcategory: item.subcategory || '',
+    name: item.name,
+    description: item.description || '',
+    image: typeof item.image === 'string' ? item.image : '',
+    isActive: isActive !== false,
+  }
+
+  if (isPizzaCategory(item.category)) {
+    const sizes = Array.isArray(item.sizes) ? item.sizes : []
+    payload.sizes = sizes
+    const prices = sizes.map((size) => Number(size.price)).filter((n) => Number.isFinite(n) && n > 0)
+    payload.price = prices.length ? Math.min(...prices) : Number(item.price) || 0
+  } else {
+    payload.price = Number(item.price)
+    const delivery = Number(item.deliveryPrice)
+    payload.deliveryPrice =
+      Number.isFinite(delivery) && delivery > 0 ? delivery : null
+    payload.sizes = []
+  }
+
+  return payload
 }
 
 function normalizeMenuItems(items, categories) {
@@ -227,6 +317,7 @@ function normalizeMenuItems(items, categories) {
       ...normalizeMenuItemSizes(normalized),
       id: normalizeItemId(item.id),
       image: typeof item.image === 'string' ? item.image : '',
+      isActive: item.isActive !== false,
     }
   })
 }
@@ -327,7 +418,7 @@ function App() {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/menu-items`)
+        const response = await fetch(`${API_BASE_URL}/menu-items?all=1`)
         if (!response.ok) {
           throw new Error('Falha ao carregar produtos')
         }
@@ -454,6 +545,39 @@ function App() {
     setMenuSyncMessage('')
   }
 
+  const setMenuItemActive = async (itemId, isActive) => {
+    const response = await fetch(`${API_BASE_URL}/menu-items/${itemId}/active`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: Boolean(isActive) }),
+    })
+
+    if (response.status === 404 || response.status === 405) {
+      const item = menuItems.find((entry) => sameItemId(entry.id, itemId))
+      if (!item) {
+        throw new Error('Item não encontrado no cardápio.')
+      }
+      await updateMenuItem(itemId, buildMenuItemApiPayload(item, isActive))
+      return menuItems.find((entry) => sameItemId(entry.id, itemId))
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        await readApiErrorMessage(response, 'Falha ao atualizar status do item'),
+      )
+    }
+
+    const updatedItem = await response.json()
+    const updated = normalizeMenuItems(
+      menuItems.map((item) => (sameItemId(item.id, itemId) ? updatedItem : item)),
+      categories,
+    )
+    setMenuItems(updated)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+    setMenuSyncMessage('')
+    return updatedItem
+  }
+
   const handleLogin = (username, password) => {
     if (username === 'admin' && password === 'admin') {
       setIsAuthenticated(true)
@@ -528,6 +652,7 @@ function App() {
                   createMenuItem={createMenuItem}
                   updateMenuItem={updateMenuItem}
                   deleteMenuItem={deleteMenuItem}
+                  setMenuItemActive={setMenuItemActive}
                   menuSyncMessage={menuSyncMessage}
                   tables={tables}
                   saveTables={saveTables}
@@ -942,7 +1067,13 @@ function HomeSplash({ phase }) {
   )
 }
 
-function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = false }) {
+function MenuItemCard({
+  menuItem,
+  onAddToCart,
+  pizzaItems = [],
+  categories = [],
+  forDelivery = false,
+}) {
   const hasSizes = itemHasSizes(menuItem)
   const [selectedSizeId, setSelectedSizeId] = useState(
     () => menuItem.sizes?.[0]?.id || 'broto',
@@ -969,8 +1100,11 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = fa
   }, [pizzaItems, menuItem])
 
   const otherPizzaOptions = useMemo(
-    () => pizzaItems.filter((item) => !sameItemId(item.id, menuItem.id)),
-    [pizzaItems, menuItem.id],
+    () =>
+      getCombinablePizzaFlavors(pizzaItems, categories, {
+        excludeItemId: normalizeItemId(menuItem.id),
+      }),
+    [pizzaItems, categories, menuItem.id],
   )
 
   const selectedFlavors = useMemo(
@@ -1047,20 +1181,17 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = fa
 
   return (
     <article className="card">
-      <div className="card-media">
-        {menuItem.image ? (
-          <img
-            src={menuItem.image}
-            alt={menuItem.name}
-            className="card-image"
-            width={MENU_IMAGE_WIDTH}
-            height={MENU_IMAGE_HEIGHT}
-            loading="lazy"
-            decoding="async"
-          />
-        ) : (
-          <div className="card-image placeholder">Sem foto</div>
-        )}
+      <div
+        className={`card-media${menuItem.image ? ' card-media--has-image' : ''}`}
+        style={
+          menuItem.image
+            ? { '--card-image': `url(${JSON.stringify(menuItem.image)})` }
+            : undefined
+        }
+        role={menuItem.image ? 'img' : undefined}
+        aria-label={menuItem.image ? menuItem.name : undefined}
+      >
+        {!menuItem.image && <div className="card-image placeholder">Sem foto</div>}
       </div>
       <h3>{menuItem.name}</h3>
       <p className="card-description">({menuItem.description})</p>
@@ -1091,6 +1222,7 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = fa
             primaryFlavor={menuItem}
             selectedFlavors={selectedFlavors}
             otherPizzaOptions={otherPizzaOptions}
+            categories={categories}
             onAddFlavor={handleAddFlavor}
             onRemoveFlavor={handleRemoveFlavor}
             normalizeItemId={normalizeItemId}
@@ -1104,9 +1236,6 @@ function MenuItemCard({ menuItem, onAddToCart, pizzaItems = [], forDelivery = fa
       {hasSizes && (
         <strong className="card-price card-price--selected">
           R$ {displayPrice.toFixed(2)}
-          {selectedFlavors.length > 1 && (
-            <span className="card-price-note"> (sabor mais caro)</span>
-          )}
         </strong>
       )}
 
@@ -1170,15 +1299,13 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     subcategoryId,
   )
   const activeCategoryData = categories.find((category) => category.id === activeCategory)
-  const filteredMenu = filterMenuByCatalog(
-    menuItems,
-    categories,
-    activeCategory,
-    activeSubcategory,
+  const filteredMenu = useMemo(
+    () => filterMenuByCatalog(menuItems, categories, activeCategory, activeSubcategory),
+    [menuItems, categories, activeCategory, activeSubcategory],
   )
   const pizzaMenuItems = useMemo(
-    () => menuItems.filter((item) => isPizzaCategory(item.category)),
-    [menuItems],
+    () => menuItems.filter((item) => isCombinablePizzaItem(item, categories)),
+    [menuItems, categories],
   )
 
   const addToCart = (cartItem) => {
@@ -1555,7 +1682,10 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
               key={menuItem.id}
               menuItem={menuItem}
               onAddToCart={addToCart}
-              pizzaItems={isPizzaCategory(menuItem.category) ? pizzaMenuItems : undefined}
+              pizzaItems={
+                isCombinablePizzaItem(menuItem, categories) ? pizzaMenuItems : undefined
+              }
+              categories={categories}
               forDelivery={isDelivery}
             />
           ))}
@@ -2305,6 +2435,7 @@ const emptyItemForm = {
   sizePrices: emptySizePrices(),
   sizeDeliveryPrices: emptySizePrices(),
   image: '',
+  isActive: true,
 }
 
 function buildItemFormFromMenuItem(item) {
@@ -2319,6 +2450,7 @@ function buildItemFormFromMenuItem(item) {
     sizePrices: buildSizePricesFromItem(item),
     sizeDeliveryPrices: buildSizePricesFromItem(item, { delivery: true }),
     image: item.image || '',
+    isActive: item.isActive !== false,
   }
 }
 
@@ -2424,7 +2556,7 @@ function AdminItemFormFields({
           </div>
         </div>
       ) : (
-        <>
+        <div className="admin-price-row field-full">
           <label className="price-field">
             <span className="field-label">Valor no salão / mesa</span>
             <div className="price-input-wrap">
@@ -2459,8 +2591,12 @@ function AdminItemFormFields({
             </div>
             <small className="field-hint">Vazio = mesmo preço do salão.</small>
           </label>
-        </>
+        </div>
       )}
+      <label className="admin-active-toggle field-full">
+        <input type="checkbox" name="isActive" checked={form.isActive !== false} onChange={onChange} />
+        <span>Item ativo no cardápio</span>
+      </label>
     </>
   )
 }
@@ -2535,9 +2671,12 @@ function AdminEditItemModal({
           {form.image && (
             <div className="image-preview image-preview--modal field-full">
               <p>Pré-visualização (como no cardápio)</p>
-              <div className="card-media menu-image-preview">
-                <img src={form.image} alt="Preview do item" className="card-image" />
-              </div>
+              <div
+                className="card-media menu-image-preview card-media--has-image"
+                style={{ '--card-image': `url(${JSON.stringify(form.image)})` }}
+                role="img"
+                aria-label="Preview do item"
+              />
             </div>
           )}
           <div className="admin-form-actions">
@@ -2641,12 +2780,20 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
   const [isSaving, setIsSaving] = useState(false)
   const [modal, setModal] = useState(null)
   const [openCategoryId, setOpenCategoryId] = useState(null)
+  const [openSubcategoryKey, setOpenSubcategoryKey] = useState(null)
 
   const closeModal = () => setModal(null)
   const showModal = (config) => setModal(config)
 
   const toggleCategoryPanel = (categoryId) => {
     setOpenCategoryId((current) => (current === categoryId ? null : categoryId))
+  }
+
+  const subcategoryPanelKey = (categoryId, subId) => `${categoryId}:${subId}`
+
+  const toggleSubcategoryPanel = (categoryId, subId) => {
+    const key = subcategoryPanelKey(categoryId, subId)
+    setOpenSubcategoryKey((current) => (current === key ? null : key))
   }
 
   const updateCategoryLabel = (categoryId, label) => {
@@ -2727,21 +2874,25 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       return
     }
 
+    const category = categories.find((item) => item.id === categoryId)
+    if (!category) return
+
+    let subId = slugify(label)
+    if (category.subcategories.some((sub) => sub.id === subId)) {
+      subId = `${subId}-${Date.now()}`
+    }
+
     setCategories(
       categories.map((item) => {
         if (item.id !== categoryId) return item
-
-        let subId = slugify(label)
-        if (item.subcategories.some((sub) => sub.id === subId)) {
-          subId = `${subId}-${Date.now()}`
-        }
-
         return {
           ...item,
           subcategories: [...item.subcategories, { id: subId, label }],
         }
       }),
     )
+    setOpenCategoryId(categoryId)
+    setOpenSubcategoryKey(subcategoryPanelKey(categoryId, subId))
     setNewSubLabelByCategory((current) => ({ ...current, [categoryId]: '' }))
     showModal({
       variant: 'success',
@@ -2817,7 +2968,10 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     <section className="categories-admin">
       <div className="categories-admin-intro">
         <h3>Categorias e subcategorias</h3>
-        <p>Categoria principal (ex.: Pizzas) e subcategorias (ex.: Doces, Premium).</p>
+        <p>
+          Categoria principal (ex.: Pizzas) e subcategorias (ex.: Doces, Premium). Abra a
+          categoria e clique em cada subcategoria para editar.
+        </p>
       </div>
 
       <form
@@ -2896,25 +3050,49 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                       Nenhuma subcategoria. Adicione abaixo se precisar (ex: Doces, Premium).
                     </p>
                   )}
-                  <div className="subcategory-admin-list">
-                    {category.subcategories.map((sub) => (
-                      <div key={sub.id} className="subcategory-admin-row">
-                        <input
-                          value={sub.label}
-                          onChange={(event) =>
-                            updateSubcategoryLabel(category.id, sub.id, event.target.value)
-                          }
-                          aria-label={`Subcategoria ${sub.label}`}
-                        />
-                        <button
-                          type="button"
-                          className="admin-btn admin-btn-ghost"
-                          onClick={() => confirmRemoveSubcategory(category, sub)}
+                  <div className="subcategory-accordion">
+                    {category.subcategories.map((sub) => {
+                      const subKey = subcategoryPanelKey(category.id, sub.id)
+                      const subOpen = openSubcategoryKey === subKey
+                      return (
+                        <article
+                          key={sub.id}
+                          className={`subcategory-accordion-item${subOpen ? ' is-open' : ''}`}
                         >
-                          Remover
-                        </button>
-                      </div>
-                    ))}
+                          <button
+                            type="button"
+                            className="subcategory-accordion-trigger"
+                            onClick={() => toggleSubcategoryPanel(category.id, sub.id)}
+                            aria-expanded={subOpen}
+                          >
+                            <span className="subcategory-accordion-label">{sub.label}</span>
+                            <span className="subcategory-accordion-chevron" aria-hidden="true" />
+                          </button>
+                          <div className="subcategory-accordion-panel">
+                            <label className="admin-field">
+                              <span className="admin-field-label">Nome da subcategoria</span>
+                              <input
+                                value={sub.label}
+                                onChange={(event) =>
+                                  updateSubcategoryLabel(category.id, sub.id, event.target.value)
+                                }
+                                aria-label={`Subcategoria ${sub.label}`}
+                              />
+                            </label>
+                            <p className="category-admin-id">
+                              ID: <code>{sub.id}</code>
+                            </p>
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-ghost"
+                              onClick={() => confirmRemoveSubcategory(category, sub)}
+                            >
+                              Remover subcategoria
+                            </button>
+                          </div>
+                        </article>
+                      )
+                    })}
                   </div>
 
                   <div className="subcategory-add-form admin-inline-form">
@@ -3175,13 +3353,26 @@ function AdminImagePreviewModal({ imageSrc, title, onClose }) {
   )
 }
 
-function AdminMenuItemRow({ item, onEdit, onRemove }) {
+function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingActive }) {
   const [showImagePreview, setShowImagePreview] = useState(false)
+  const isActive = item.isActive !== false
+
+  const handleToggleActive = async () => {
+    if (isTogglingActive) return
+    try {
+      await onToggleActive(item.id, !isActive)
+    } catch {
+      /* feedback no AdminPage via modal se necessário */
+    }
+  }
 
   return (
-    <article className="admin-item">
+    <article className={`admin-item${isActive ? '' : ' admin-item--inactive'}`}>
       <div className="admin-item-body">
-        <strong className="admin-item-name">{item.name}</strong>
+        <strong className="admin-item-name">
+          {item.name}
+          {!isActive && <span className="admin-item-badge">Inativo</span>}
+        </strong>
         <dl className="admin-item-meta">
           <div className="admin-item-meta-row">
             <dt>Imagem</dt>
@@ -3204,6 +3395,14 @@ function AdminMenuItemRow({ item, onEdit, onRemove }) {
         <AdminItemPricing item={item} />
       </div>
       <div className="admin-item-actions">
+        <button
+          type="button"
+          className={`admin-btn admin-btn-outline${isActive ? '' : ' admin-btn-gold'}`}
+          onClick={handleToggleActive}
+          disabled={isTogglingActive}
+        >
+          {isTogglingActive ? '...' : isActive ? 'Desativar' : 'Ativar'}
+        </button>
         <button type="button" className="edit-btn" onClick={() => onEdit(item)}>
           Editar
         </button>
@@ -3221,16 +3420,124 @@ function AdminMenuItemRow({ item, onEdit, onRemove }) {
   )
 }
 
-function AdminItemsCatalog({ groupedMenu, openItemsCategoryId, onToggleCategory, onEdit, onRemove }) {
+function itemsSubcategoryPanelKey(categoryId, sectionId) {
+  return `${categoryId}:${sectionId || 'geral'}`
+}
+
+function AdminItemsCatalog({
+  categories,
+  groupedMenu,
+  openItemsCategoryId,
+  openItemsSubcategoryKey,
+  onToggleSubcategory,
+  onToggleCategory,
+  onEdit,
+  onRemove,
+  onToggleActive,
+  togglingItemId,
+  itemSearchQuery,
+  onItemSearchChange,
+  itemStatusFilter,
+  onItemStatusFilterChange,
+  itemCategoryFilter,
+  onItemCategoryFilterChange,
+  itemSubcategoryFilter,
+  onItemSubcategoryFilterChange,
+  subcategoryFilterOptions,
+  searchResultCount,
+  hasActiveFilters,
+  onClearFilters,
+}) {
+  const filtersActive = hasActiveFilters
+  const visibleGroups = filtersActive
+    ? groupedMenu.knownGroups.filter((group) => group.totalCount > 0)
+    : groupedMenu.knownGroups
+  const showOrphans = groupedMenu.orphans.length > 0 && (!filtersActive || groupedMenu.orphans.length > 0)
+
   return (
     <section className="admin-items-catalog admin-tab-panel-inner">
       <header className="admin-panel-header">
         <h3>Itens cadastrados</h3>
-        <p>Lista por categoria. Abra cada bloco para ver preços e editar.</p>
+        <p>Busque e filtre por categoria, subcategoria ou status para achar itens no admin.</p>
       </header>
 
+      <div className="admin-items-filters">
+        <AdminSearchBar
+          id="admin-items-search"
+          value={itemSearchQuery}
+          onChange={onItemSearchChange}
+          placeholder="Buscar por nome, descrição..."
+          resultCount={filtersActive ? searchResultCount : null}
+        />
+        <div className="admin-items-filter-row">
+          <label className="admin-filter-field">
+            <span className="admin-field-label">Categoria</span>
+            <select
+              value={itemCategoryFilter}
+              onChange={(event) => onItemCategoryFilterChange(event.target.value)}
+            >
+              <option value="all">Todas as categorias</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="admin-filter-field">
+            <span className="admin-field-label">Subcategoria</span>
+            <select
+              value={itemSubcategoryFilter}
+              onChange={(event) => onItemSubcategoryFilterChange(event.target.value)}
+              disabled={subcategoryFilterOptions.length === 0}
+            >
+              <option value="all">Todas</option>
+              {subcategoryFilterOptions.map((sub) => (
+                <option key={sub.id} value={sub.id}>
+                  {sub.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="admin-items-filter-toolbar">
+          <div className="admin-items-filter-chips" role="group" aria-label="Filtrar por status">
+            <button
+              type="button"
+              className={`admin-filter-chip${itemStatusFilter === 'all' ? ' is-active' : ''}`}
+              onClick={() => onItemStatusFilterChange('all')}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              className={`admin-filter-chip${itemStatusFilter === 'active' ? ' is-active' : ''}`}
+              onClick={() => onItemStatusFilterChange('active')}
+            >
+              Ativos
+            </button>
+            <button
+              type="button"
+              className={`admin-filter-chip${itemStatusFilter === 'inactive' ? ' is-active' : ''}`}
+              onClick={() => onItemStatusFilterChange('inactive')}
+            >
+              Inativos
+            </button>
+          </div>
+          {hasActiveFilters && (
+            <button type="button" className="admin-btn admin-btn-ghost" onClick={onClearFilters}>
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtersActive && searchResultCount === 0 && (
+        <p className="admin-items-search-empty">Nenhum item encontrado com os filtros atuais.</p>
+      )}
+
       <div className="category-accordion admin-menu-accordion">
-        {groupedMenu.knownGroups.map(({ category, totalCount, sections }) => {
+        {visibleGroups.map(({ category, totalCount, sections }) => {
           const isOpen = openItemsCategoryId === category.id
           const itemLabel = totalCount === 1 ? '1 item' : `${totalCount} itens`
 
@@ -3256,30 +3563,62 @@ function AdminItemsCatalog({ groupedMenu, openItemsCategoryId, onToggleCategory,
                 {totalCount === 0 ? (
                   <p className="admin-items-empty">Nenhum item nesta categoria.</p>
                 ) : (
-                  sections.map((section) => (
-                    <div key={section.id || 'geral'} className="admin-items-section">
-                      {section.label && (
-                        <h4 className="admin-items-section-title">{section.label}</h4>
-                      )}
-                      <div className="admin-list admin-list--nested">
-                        {section.items.map((item) => (
-                          <AdminMenuItemRow
-                            key={item.id}
-                            item={item}
-                            onEdit={onEdit}
-                            onRemove={onRemove}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))
+                  <div className="subcategory-accordion admin-items-sub-accordion">
+                    {sections.map((section) => {
+                      const itemRows = section.items.map((item) => (
+                        <AdminMenuItemRow
+                          key={item.id}
+                          item={item}
+                          onEdit={onEdit}
+                          onRemove={onRemove}
+                          onToggleActive={onToggleActive}
+                          isTogglingActive={togglingItemId === item.id}
+                        />
+                      ))
+
+                      if (!section.label) {
+                        return (
+                          <div key={section.id || 'geral'} className="admin-list admin-list--nested">
+                            {itemRows}
+                          </div>
+                        )
+                      }
+
+                      const subKey = itemsSubcategoryPanelKey(category.id, section.id)
+                      const subOpen = openItemsSubcategoryKey === subKey
+                      const sectionCount = section.items.length
+                      const sectionMeta =
+                        sectionCount === 1 ? '1 item' : `${sectionCount} itens`
+
+                      return (
+                        <article
+                          key={section.id || 'geral'}
+                          className={`subcategory-accordion-item${subOpen ? ' is-open' : ''}`}
+                        >
+                          <button
+                            type="button"
+                            className="subcategory-accordion-trigger"
+                            onClick={() => onToggleSubcategory(subKey)}
+                            aria-expanded={subOpen}
+                          >
+                            <span className="subcategory-accordion-label">{section.label}</span>
+                            <span className="subcategory-accordion-meta">{sectionMeta}</span>
+                            <span className="subcategory-accordion-chevron" aria-hidden="true" />
+                          </button>
+                          <div className="subcategory-accordion-panel">
+                            <div className="admin-list admin-list--nested">{itemRows}</div>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
             </article>
           )
         })}
 
-        {groupedMenu.orphans.length > 0 && (
+        {showOrphans && (
           <article
             className={`category-accordion-item admin-menu-accordion--orphans${
               openItemsCategoryId === '__orphans__' ? ' is-open' : ''
@@ -3383,6 +3722,7 @@ function AdminPage({
   createMenuItem,
   updateMenuItem,
   deleteMenuItem,
+  setMenuItemActive,
   menuSyncMessage,
   tables,
   saveTables,
@@ -3396,15 +3736,84 @@ function AdminPage({
   const [isSavingNewItem, setIsSavingNewItem] = useState(false)
   const [isSavingEditItem, setIsSavingEditItem] = useState(false)
   const [isProcessingImage, setIsProcessingImage] = useState(false)
+  const [togglingItemId, setTogglingItemId] = useState(null)
   const [itemModal, setItemModal] = useState(null)
   const [openItemsCategoryId, setOpenItemsCategoryId] = useState(null)
+  const [openItemsSubcategoryKey, setOpenItemsSubcategoryKey] = useState(null)
   const [adminTab, setAdminTab] = useState('itens')
+  const [itemSearchQuery, setItemSearchQuery] = useState('')
+  const [itemStatusFilter, setItemStatusFilter] = useState('all')
+  const [itemCategoryFilter, setItemCategoryFilter] = useState('all')
+  const [itemSubcategoryFilter, setItemSubcategoryFilter] = useState('all')
   const closeItemModal = () => setItemModal(null)
 
-  const groupedMenu = useMemo(
-    () => groupMenuItemsForAdmin(menuItems, categories),
-    [menuItems, categories],
+  const subcategoryFilterOptions = useMemo(() => {
+    if (itemCategoryFilter === 'all') return []
+    const category = categories.find((entry) => entry.id === itemCategoryFilter)
+    return category?.subcategories || []
+  }, [categories, itemCategoryFilter])
+
+  const hasActiveItemFilters =
+    itemSearchQuery.trim().length > 0 ||
+    itemStatusFilter !== 'all' ||
+    itemCategoryFilter !== 'all' ||
+    itemSubcategoryFilter !== 'all'
+
+  const adminFilteredItems = useMemo(
+    () =>
+      filterMenuItemsForAdmin(menuItems, categories, {
+        search: itemSearchQuery,
+        status: itemStatusFilter,
+        categoryId: itemCategoryFilter,
+        subcategoryId: itemSubcategoryFilter,
+      }),
+    [menuItems, categories, itemSearchQuery, itemStatusFilter, itemCategoryFilter, itemSubcategoryFilter],
   )
+
+  const groupedMenu = useMemo(
+    () => groupMenuItemsForAdmin(adminFilteredItems, categories),
+    [adminFilteredItems, categories],
+  )
+
+  const adminSearchResultCount = adminFilteredItems.length
+
+  const clearItemFilters = () => {
+    setItemSearchQuery('')
+    setItemStatusFilter('all')
+    setItemCategoryFilter('all')
+    setItemSubcategoryFilter('all')
+  }
+
+  const handleItemCategoryFilterChange = (categoryId) => {
+    setItemCategoryFilter(categoryId)
+    setItemSubcategoryFilter('all')
+    if (categoryId !== 'all') {
+      setOpenItemsCategoryId(categoryId)
+    }
+  }
+
+  useEffect(() => {
+    if (!hasActiveItemFilters) return
+
+    if (itemCategoryFilter !== 'all') {
+      setOpenItemsCategoryId(itemCategoryFilter)
+      return
+    }
+
+    const firstWithItems = groupedMenu.knownGroups.find((group) => group.totalCount > 0)
+    if (firstWithItems) {
+      setOpenItemsCategoryId(firstWithItems.category.id)
+      return
+    }
+    if (groupedMenu.orphans.length > 0) {
+      setOpenItemsCategoryId('__orphans__')
+    }
+  }, [
+    hasActiveItemFilters,
+    itemCategoryFilter,
+    itemSearchQuery,
+    groupedMenu,
+  ])
 
   const newItemCategory = categories.find((category) => category.id === newItemForm.category)
   const newSubcategoryOptions = newItemCategory?.subcategories || []
@@ -3412,7 +3821,11 @@ function AdminPage({
   const editSubcategoryOptions = editItemCategory?.subcategories || []
 
   const makeFormChangeHandler = (setFormState) => (event) => {
-    const { name, value } = event.target
+    const { name, value, type, checked } = event.target
+    if (type === 'checkbox') {
+      setFormState((current) => ({ ...current, [name]: checked }))
+      return
+    }
     setFormState((current) => {
       if (name === 'category') {
         return {
@@ -3518,7 +3931,15 @@ function AdminPage({
   }
 
   const toggleItemsCategoryPanel = (categoryId) => {
-    setOpenItemsCategoryId((current) => (current === categoryId ? null : categoryId))
+    setOpenItemsCategoryId((current) => {
+      const next = current === categoryId ? null : categoryId
+      if (next !== categoryId) setOpenItemsSubcategoryKey(null)
+      return next
+    })
+  }
+
+  const toggleItemsSubcategoryPanel = (subKey) => {
+    setOpenItemsSubcategoryKey((current) => (current === subKey ? null : subKey))
   }
 
   const validateItemForm = (form, subcategoryOptions) => {
@@ -3547,6 +3968,7 @@ function AdminPage({
       name: form.name.trim(),
       description: form.description.trim(),
       image: form.image.trim(),
+      isActive: form.isActive !== false,
     }
 
     if (isPizzaCategory(form.category)) {
@@ -3661,6 +4083,28 @@ function AdminPage({
       })
     } finally {
       setIsSavingEditItem(false)
+    }
+  }
+
+  const handleToggleItemActive = async (itemId, isActive) => {
+    setTogglingItemId(itemId)
+    try {
+      await setMenuItemActive(itemId, isActive)
+      setItemModal({
+        variant: 'success',
+        title: isActive ? 'Item ativado' : 'Item desativado',
+        description: isActive
+          ? 'O item voltou a aparecer no cardápio.'
+          : 'O item não aparece mais no cardápio para os clientes.',
+      })
+    } catch (error) {
+      setItemModal({
+        variant: 'error',
+        title: 'Erro',
+        description: formatApiError(error, 'Não foi possível alterar o status.'),
+      })
+    } finally {
+      setTogglingItemId(null)
     }
   }
 
@@ -3788,9 +4232,12 @@ function AdminPage({
             {newItemForm.image && (
               <div className="image-preview">
                 <p>Pré-visualização (como no cardápio)</p>
-                <div className="card-media menu-image-preview">
-                  <img src={newItemForm.image} alt="Preview do item" className="card-image" />
-                </div>
+                <div
+                  className="card-media menu-image-preview card-media--has-image"
+                  style={{ '--card-image': `url(${JSON.stringify(newItemForm.image)})` }}
+                  role="img"
+                  aria-label="Preview do item"
+                />
               </div>
             )}
           </div>
@@ -3799,11 +4246,28 @@ function AdminPage({
         {adminTab === 'itens' && (
           <div role="tabpanel" className="admin-tab-panel">
             <AdminItemsCatalog
+              categories={categories}
               groupedMenu={groupedMenu}
               openItemsCategoryId={openItemsCategoryId}
+              openItemsSubcategoryKey={openItemsSubcategoryKey}
+              onToggleSubcategory={toggleItemsSubcategoryPanel}
               onToggleCategory={toggleItemsCategoryPanel}
               onEdit={startEdit}
               onRemove={removeItem}
+              onToggleActive={handleToggleItemActive}
+              togglingItemId={togglingItemId}
+              itemSearchQuery={itemSearchQuery}
+              onItemSearchChange={setItemSearchQuery}
+              itemStatusFilter={itemStatusFilter}
+              onItemStatusFilterChange={setItemStatusFilter}
+              itemCategoryFilter={itemCategoryFilter}
+              onItemCategoryFilterChange={handleItemCategoryFilterChange}
+              itemSubcategoryFilter={itemSubcategoryFilter}
+              onItemSubcategoryFilterChange={setItemSubcategoryFilter}
+              subcategoryFilterOptions={subcategoryFilterOptions}
+              searchResultCount={adminSearchResultCount}
+              hasActiveFilters={hasActiveItemFilters}
+              onClearFilters={clearItemFilters}
             />
           </div>
         )}

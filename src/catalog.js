@@ -148,12 +148,79 @@ export function resolveActiveSubcategory(categories, categoryId, subcategoryId) 
   return 'todas'
 }
 
+export function normalizeSearchText(text) {
+  return String(text ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+/** Busca por nome, descrição, categoria, subcategoria e ID. */
+export function menuItemMatchesSearch(item, query, categories = []) {
+  const normalizedQuery = normalizeSearchText(query)
+  if (!normalizedQuery) return true
+
+  const categoryLabel = getCategoryLabel(categories, item.category)
+  const subLabel = item.subcategory
+    ? getSubcategoryLabel(categories, item.category, item.subcategory)
+    : ''
+
+  const haystack = normalizeSearchText(
+    [
+      item.name,
+      item.description,
+      item.category,
+      categoryLabel,
+      subLabel,
+      item.subcategory,
+      String(item.id ?? ''),
+    ].join(' '),
+  )
+
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean)
+  return tokens.every((token) => haystack.includes(token))
+}
+
+export function filterMenuItemsBySearch(menuItems, query, categories = []) {
+  if (!normalizeSearchText(query)) {
+    return menuItems
+  }
+  return menuItems.filter((item) => menuItemMatchesSearch(item, query, categories))
+}
+
+/** Filtros da lista de itens no admin (busca, status, categoria, subcategoria). */
+export function filterMenuItemsForAdmin(
+  menuItems,
+  categories = [],
+  { search = '', status = 'all', categoryId = 'all', subcategoryId = 'all' } = {},
+) {
+  let list = menuItems
+
+  if (status === 'active') {
+    list = list.filter((item) => item.isActive !== false)
+  } else if (status === 'inactive') {
+    list = list.filter((item) => item.isActive === false)
+  }
+
+  if (categoryId && categoryId !== 'all') {
+    list = list.filter((item) => item.category === categoryId)
+  }
+
+  if (subcategoryId && subcategoryId !== 'all') {
+    list = list.filter((item) => (item.subcategory || '') === subcategoryId)
+  }
+
+  return filterMenuItemsBySearch(list, search, categories)
+}
+
 export function filterMenuByCatalog(menuItems, categories, categoryId, subcategoryId) {
   const activeCategory = resolveActiveCategory(categories, categoryId)
   const activeSubcategory = resolveActiveSubcategory(categories, activeCategory, subcategoryId)
   const subs = findCategory(categories, activeCategory)?.subcategories || []
 
   return menuItems.filter((item) => {
+    if (item.isActive === false) return false
     const itemCategory = item.category || categories[0]?.id
     if (itemCategory !== activeCategory) return false
     if (subs.length === 0 || activeSubcategory === 'todas') return true
@@ -260,6 +327,59 @@ export function itemHasSizes(item) {
   return isPizzaCategory(item?.category) && Array.isArray(item?.sizes) && item.sizes.length > 0
 }
 
+/** Subcategorias tratadas como pizza doce nos combos de sabores. */
+export const PIZZA_SWEET_SUBCATEGORY_IDS = new Set(['doces'])
+
+export function isPizzaSweetItem(item, categories = []) {
+  const subId = String(item?.subcategory || '').trim()
+  if (PIZZA_SWEET_SUBCATEGORY_IDS.has(subId)) return true
+
+  const category = findCategory(categories, item?.category)
+  const subLabel =
+    category?.subcategories?.find((entry) => entry.id === subId)?.label?.toLowerCase() || ''
+  if (subLabel.includes('doce')) return true
+
+  const name = String(item?.name || '').toLowerCase()
+  return name.includes('doce') && (isPizzaCategory(item?.category) || name.includes('pizza'))
+}
+
+/** Pizzas que podem entrar no seletor de vários sabores (salgada + doce). */
+export function isCombinablePizzaItem(item, categories = []) {
+  if (item?.isActive === false) return false
+  if (!itemHasSizes(item)) return false
+  if (isPizzaCategory(item?.category)) return true
+  return isPizzaSweetItem(item, categories)
+}
+
+export function getCombinablePizzaFlavors(menuItems, categories = [], { excludeItemId } = {}) {
+  const excludeKey = excludeItemId != null ? String(excludeItemId) : ''
+
+  return menuItems
+    .filter((item) => isCombinablePizzaItem(item, categories))
+    .filter((item) => String(item.id) !== excludeKey)
+    .sort((a, b) => {
+      const aSweet = isPizzaSweetItem(a, categories) ? 1 : 0
+      const bSweet = isPizzaSweetItem(b, categories) ? 1 : 0
+      if (aSweet !== bSweet) return aSweet - bSweet
+      return a.name.localeCompare(b.name, 'pt-BR')
+    })
+}
+
+export function groupPizzaFlavorOptions(items, categories = []) {
+  const savory = []
+  const sweet = []
+
+  for (const item of items) {
+    if (isPizzaSweetItem(item, categories)) {
+      sweet.push(item)
+    } else {
+      savory.push(item)
+    }
+  }
+
+  return { savory, sweet }
+}
+
 export function getPizzaSizePrice(menuItem, sizeId) {
   if (!itemHasSizes(menuItem)) {
     const price = Number(menuItem?.price)
@@ -303,7 +423,7 @@ export function multiFlavorCartKey(flavorIds, sizeId) {
   return `${sorted.join('+')}:${sizeId || ''}`
 }
 
-/** Vários sabores: cobra o valor do sabor mais caro no tamanho. */
+/** Preço da pizza com vários sabores no tamanho escolhido. */
 export function computeMultiFlavorPrice(pizzaItemsById, flavorIds, sizeId) {
   const prices = normalizeFlavorIdList(flavorIds).map((id) => {
     const item = pizzaItemsById.get(id)

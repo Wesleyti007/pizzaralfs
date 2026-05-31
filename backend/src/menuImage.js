@@ -26,17 +26,12 @@ function decodeImageBuffer(imageInput) {
   return { skip: false, buffer }
 }
 
-/**
- * Redimensiona imagens enviadas em base64 (upload do admin).
- * URLs http(s) sao mantidas como estao.
- */
-export async function normalizeMenuImageString(imageInput) {
-  const decoded = decodeImageBuffer(imageInput)
-  if (decoded.skip) {
-    return decoded.value
+export async function normalizeMenuImageBuffer(buffer) {
+  if (!buffer?.length) {
+    throw new Error('Arquivo de imagem vazio.')
   }
 
-  const output = await sharp(decoded.buffer, { failOn: 'none', limitInputPixels: 40_000_000 })
+  const output = await sharp(buffer, { failOn: 'none', limitInputPixels: 40_000_000 })
     .rotate()
     .resize(MENU_IMAGE_WIDTH, MENU_IMAGE_HEIGHT, {
       fit: 'cover',
@@ -47,4 +42,17 @@ export async function normalizeMenuImageString(imageInput) {
     .toBuffer()
 
   return `data:image/jpeg;base64,${output.toString('base64')}`
+}
+
+/**
+ * Redimensiona imagens enviadas em base64 (upload do admin).
+ * URLs http(s) sao mantidas como estao.
+ */
+export async function normalizeMenuImageString(imageInput) {
+  const decoded = decodeImageBuffer(imageInput)
+  if (decoded.skip) {
+    return decoded.value
+  }
+
+  return normalizeMenuImageBuffer(decoded.buffer)
 }

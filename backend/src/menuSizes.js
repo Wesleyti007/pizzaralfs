@@ -68,6 +68,7 @@ export function normalizeMenuItemRow(row) {
     price,
     image: row.image || '',
     sizes,
+    isActive: row.is_active !== false && row.isActive !== false,
   }
   if (Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
     item.deliveryPrice = deliveryPrice
@@ -80,6 +81,7 @@ export function buildMenuItemPayload(body) {
   const name = String(body.name || '').trim()
   const description = String(body.description || '').trim()
   const image = String(body.image || '').trim()
+  const isActive = body.isActive !== false && body.active !== false
 
   if (isPizzaCategory(category)) {
     const sizes = normalizePizzaSizes(body.sizes, body.price)
@@ -99,6 +101,7 @@ export function buildMenuItemPayload(body) {
         image,
         sizes,
         deliveryPrice: null,
+        isActive,
       },
     }
   }
@@ -127,6 +130,7 @@ export function buildMenuItemPayload(body) {
       image,
       sizes: [],
       deliveryPrice,
+      isActive,
     },
   }
 }

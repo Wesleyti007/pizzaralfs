@@ -184,6 +184,7 @@ O Postgres em producao **nao** reaplica `init.sql` sozinho. Rode migracoes novas
 cd /opt/pizza-ralfs/deploy
 docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_orders_delivery.sql
 docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_delivery_pricing.sql
+docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/migrate_menu_item_active.sql
 ```
 
 Se aparecer `ALTER TABLE` varias vezes, ok. Se disser que a coluna ja existe, tambem ok.
