@@ -23,22 +23,13 @@ rsync -avz \
   --exclude '.env' \
   "$PROJECT_ROOT/" "${VPS_USER}@${VPS_HOST}:${REMOTE_DIR}/"
 
-echo "==> Migracoes SQL no VPS"
-MIGRATIONS=(
-  migrate_categories.sql
-  migrate_pizza_sizes.sql
-  migrate_orders_status.sql
-  migrate_orders_delivery.sql
-  migrate_delivery_pricing.sql
-  migrate_delivery_km_cep.sql
-  migrate_menu_item_active.sql
-)
-for migration in "${MIGRATIONS[@]}"; do
-  echo "    -> ${migration}"
+echo "==> Migracoes SQL no VPS (somente pendentes; use RUN_MIGRATIONS=0 para pular)"
+if [[ "${RUN_MIGRATIONS:-1}" != "0" ]]; then
   ssh "${VPS_USER}@${VPS_HOST}" \
-    "cd ${REMOTE_DIR}/deploy && docker compose exec -T db psql -U pizzaralfs -d pizzaralfs < ../backend/sql/${migration}" \
-    || echo "    (aviso: ${migration} pode ja estar aplicada)"
-done
+    "cd ${REMOTE_DIR}/deploy && chmod +x migrate.sh && ./migrate.sh"
+else
+  echo "    (pulado: RUN_MIGRATIONS=0)"
+fi
 
 echo "==> Reiniciar app e Caddy no VPS (usa dist/ e backend/src/ do disco)"
 ssh "${VPS_USER}@${VPS_HOST}" \

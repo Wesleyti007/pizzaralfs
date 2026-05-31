@@ -40,6 +40,10 @@ OPCAO B — Passo a passo manual
   ssh root@161.97.100.78
   cd /opt/pizza-ralfs/deploy
 
+  cd deploy && ./migrate.sh
+  (ou, se o banco ja tinha tudo antes: ./bootstrap-migrations-registry.sh — uma vez)
+
+  Legado (nao usar mais — roda tudo sempre):
   for f in migrate_categories.sql migrate_pizza_sizes.sql migrate_orders_status.sql \
     migrate_orders_delivery.sql migrate_delivery_pricing.sql migrate_delivery_km_cep.sql \
     migrate_menu_item_active.sql; do

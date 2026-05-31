@@ -477,6 +477,59 @@ body.home-splash-active .brand-header {
   width: fit-content;
 }
 
+/* Labels de formulário — padrão único no app */
+.field-label,
+.admin-field-label,
+.pizza-sizes-label,
+.pizza-half-flavor-label,
+.observation-label,
+.pizza-flavor-quick-group-label,
+.pizza-size-admin-label,
+.admin-item-price-label,
+.reports-summary-label,
+.order-destination-field,
+.admin-delivery-settings-form .observation-label {
+  font-family: inherit;
+  font-size: var(--ui-label-size);
+  font-weight: var(--ui-label-weight);
+  line-height: var(--ui-label-line-height);
+  letter-spacing: var(--ui-label-tracking);
+  color: var(--ui-label-color);
+  text-transform: none;
+}
+
+.observation-label {
+  display: block;
+  margin: 10px 0 6px;
+}
+
+.admin-field-label,
+.pizza-sizes-label,
+.pizza-half-flavor-label,
+.pizza-flavor-quick-group-label,
+.field-label,
+.pizza-size-admin-label,
+.admin-item-price-label {
+  display: block;
+  margin: 0 0 6px;
+}
+
+.pizza-half-flavor-label {
+  margin-bottom: 4px;
+}
+
+.reports-summary-label {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.order-destination-field {
+  display: grid;
+  gap: 6px;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
 .catalog-search {
   grid-column: 1 / -1;
   display: grid;
@@ -845,14 +898,6 @@ body.home-splash-active .brand-header {
   margin-bottom: 8px;
 }
 
-.pizza-sizes-label {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--brand-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
 .pizza-mode {
   display: grid;
   gap: 10px;
@@ -887,14 +932,6 @@ body.home-splash-active .brand-header {
 .pizza-half-flavor {
   display: grid;
   gap: 6px;
-}
-
-.pizza-half-flavor-label {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--brand-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .pizza-half-flavor-select {
@@ -1240,14 +1277,6 @@ body.home-splash-active .brand-header {
   gap: 6px;
 }
 
-.pizza-flavor-quick-group-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--brand-text-muted);
-}
-
 .pizza-flavor-quick-list {
   list-style: none;
   margin: 0;
@@ -1353,12 +1382,6 @@ body.home-splash-active .brand-header {
 .pizza-size-admin-field {
   display: grid;
   gap: 6px;
-}
-
-.pizza-size-admin-label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--brand-dark);
 }
 
 .basket-item-size {
@@ -1654,12 +1677,6 @@ body.home-splash-active .brand-header {
   padding: 0;
 }
 
-.field-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #374151;
-}
-
 .field-hint {
   font-size: 0.78rem;
   color: #6b7280;
@@ -1940,14 +1957,6 @@ body.home-splash-active .brand-header {
   gap: 8px;
 }
 
-.admin-item-price-label {
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--brand-text-muted);
-}
-
 .admin-item-price-value {
   font-weight: 700;
   font-size: 1.05rem;
@@ -2157,13 +2166,6 @@ body.home-splash-active .brand-header {
   cursor: pointer;
 }
 
-.order-destination-field {
-  display: grid;
-  gap: 4px;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
 .order-destination-field input {
   font-weight: 400;
   padding: 8px 10px;
@@ -2307,13 +2309,6 @@ body.home-splash-active .brand-header {
   color: #374151;
 }
 
-.observation-label {
-  display: block;
-  margin-top: 10px;
-  margin-bottom: 6px;
-  font-size: 0.85rem;
-  color: #374151;
-}
 
 .observation-input {
   width: 100%;
@@ -2861,12 +2856,6 @@ body.home-splash-active .brand-header {
   gap: 6px;
   flex: 1;
   min-width: 200px;
-}
-
-.admin-field-label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--brand-text-muted);
 }
 
 .admin-field input {
@@ -3994,14 +3983,6 @@ body.home-splash-active .brand-header {
 .reports-summary-card--cancelled {
   border-color: rgba(107, 114, 128, 0.35);
   background: rgba(107, 114, 128, 0.08);
-}
-
-.reports-summary-label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--brand-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .reports-summary-value {
