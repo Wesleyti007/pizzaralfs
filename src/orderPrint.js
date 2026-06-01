@@ -111,7 +111,7 @@ function buildViaHtml(order, items, viaNumber) {
   `
 }
 
-/** 3ª folha no delivery: canhoto com dados de entrega para o entregador. */
+/** 3ª parte no delivery: canhoto completo (mesmas informações, separado por linha de corte). */
 function buildCanhotoEntregaHtml(order, items) {
   return `
     <section class="order-print-via order-print-via--canhoto">
@@ -133,6 +133,10 @@ function buildCanhotoEntregaHtml(order, items) {
       </div>
     </section>
   `
+}
+
+function buildPrintTearLine(label) {
+  return `<p class="order-print-tear" role="separator">${escapeHtml(label)}</p>`
 }
 
 function thermalPrintStyles() {
@@ -162,9 +166,20 @@ function thermalPrintStyles() {
       padding: 0;
     }
     .order-print-via--canhoto {
-      border: 2px dashed #000;
-      padding: 3mm 2mm;
-      margin-top: 2mm;
+      border: 1px dashed #000;
+      padding: 2mm 1mm;
+      margin: 0;
+    }
+    .order-print-tear {
+      margin: 2mm 0 1mm;
+      padding: 1mm 0 0;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      border-top: 1px dashed #000;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .print-block {
       break-inside: avoid;
@@ -178,20 +193,6 @@ function thermalPrintStyles() {
     .print-delivery-box {
       break-inside: avoid;
       page-break-inside: avoid;
-    }
-    .order-print-cut {
-      break-before: page;
-      page-break-before: always;
-      break-after: page;
-      page-break-after: always;
-      margin: 6mm 0;
-      padding: 3mm 0;
-      text-align: center;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      border-top: 2px dashed #000;
-      border-bottom: 2px dashed #000;
     }
     .print-center { text-align: center; }
     .print-brand {
@@ -295,14 +296,15 @@ function thermalPrintStyles() {
         break-inside: avoid;
         page-break-inside: avoid;
       }
-      .order-print-cut,
-      .order-print-via--canhoto {
-        break-before: page;
-        page-break-before: always;
+      .order-print-tear {
+        break-before: avoid;
+        page-break-before: avoid;
+        break-after: avoid;
+        page-break-after: avoid;
       }
       .order-print-via {
-        break-inside: auto;
-        page-break-inside: auto;
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
     }
   `
@@ -312,13 +314,13 @@ export function buildOrderPrintHtml(order, items) {
   const isDelivery = isDeliveryOrder(order.tableNumber ?? order.mesa, order.orderType)
 
   const segundaVia = `
-    <div class="order-print-cut">--- 2a VIA ---</div>
+    ${buildPrintTearLine('--- 2a VIA ---')}
     ${buildViaHtml(order, items, 2)}
   `
 
   const canhotoEntrega = isDelivery
     ? `
-    <div class="order-print-cut">--- CANHOTO ENTREGA ---</div>
+    ${buildPrintTearLine('--- CANHOTO ENTREGA ---')}
     ${buildCanhotoEntregaHtml(order, items)}
   `
     : ''
@@ -336,7 +338,6 @@ export function buildOrderPrintHtml(order, items) {
     ${buildViaHtml(order, items, 1)}
     ${segundaVia}
     ${canhotoEntrega}
-    <p class="print-divider" style="margin-top:8mm">.</p>
   </div>
 </body>
 </html>`
