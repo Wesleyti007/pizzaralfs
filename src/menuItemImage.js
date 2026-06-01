@@ -10,17 +10,27 @@ export function menuItemHasImage(item) {
   return hasMenuItemImageValue(item.image)
 }
 
-/** URL para exibir foto do produto (endpoint binário com cache). */
-export function menuItemImageSrc(item, apiBase = API_BASE_URL) {
+/**
+ * URL da imagem do produto.
+ * @param {'card'|'full'} variant — card = miniatura leve no cardápio; full = admin/preview
+ */
+export function menuItemImageSrc(item, options = {}) {
   if (!item || !menuItemHasImage(item)) return null
+
+  const apiBase = options.apiBase ?? API_BASE_URL
+  const variant = options.variant === 'full' ? 'full' : 'card'
 
   const inline = String(item.image ?? '').trim()
   if (/^https?:\/\//i.test(inline)) return inline
-  if (inline.startsWith('data:image/')) return inline
+  if (inline.startsWith('data:image/') && variant === 'full') return inline
+  if (inline.startsWith('data:image/')) {
+    return inline
+  }
 
   const id = item.id
   if (id == null || id === '') return null
-  return `${apiBase.replace(/\/$/, '')}/menu-items/${id}/image`
+  const base = apiBase.replace(/\/$/, '')
+  return `${base}/menu-items/${id}/image?v=${variant}`
 }
 
 /** Versão leve para localStorage (sem base64). */

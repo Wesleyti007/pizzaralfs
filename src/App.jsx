@@ -45,6 +45,7 @@ import {
 import { printOrderDocument } from './orderPrint.js'
 import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
+import { CatalogCardImage } from './CatalogCardImage.jsx'
 import { menuItemImageSrc, menuItemsForStorage } from './menuItemImage.js'
 import { downloadOrderReceiptImage } from './orderReceiptImage.js'
 import { PizzaSlicePicker } from './PizzaSlicePicker.jsx'
@@ -505,7 +506,8 @@ function App() {
     })
 
     if (!response.ok) {
-      throw new Error('Falha ao criar produto')
+      const body = await response.json().catch(() => ({}))
+      throw new Error(body.message || body.detail || 'Falha ao criar produto')
     }
 
     const createdItem = await response.json()
@@ -1196,6 +1198,7 @@ function MenuItemCard({
   pizzaItems = [],
   categories = [],
   forDelivery = false,
+  imagePriority = false,
 }) {
   const hasSizes = itemHasSizes(menuItem)
   const [selectedSizeId, setSelectedSizeId] = useState(
@@ -1302,7 +1305,6 @@ function MenuItemCard({
 
   const addDisabled = selectedFlavors.length === 0
   const showImage = hasMenuItemImage(menuItem)
-  const imageSrc = menuItemImageSrc(menuItem)
   const placeholderStyle = showImage
     ? undefined
     : { '--placeholder-logo': `url(${LOGO_URL})` }
@@ -1313,13 +1315,11 @@ function MenuItemCard({
         className={`card-media${showImage ? ' card-media--has-image' : ' card-media--placeholder'}`}
         style={placeholderStyle}
       >
-        {showImage && imageSrc ? (
-          <img
-            src={imageSrc}
-            alt={menuItem.name}
-            className="card-media-img"
-            loading="lazy"
-            decoding="async"
+        {showImage ? (
+          <CatalogCardImage
+            item={menuItem}
+            name={menuItem.name}
+            priority={imagePriority}
           />
         ) : null}
       </div>
@@ -1820,7 +1820,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
           </div>
         )}
         <div className="menu-items-grid">
-          {filteredMenu.map((menuItem) => (
+          {filteredMenu.map((menuItem, index) => (
             <MenuItemCard
               key={menuItem.id}
               menuItem={menuItem}
@@ -1830,6 +1830,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
               }
               categories={categories}
               forDelivery={isDelivery}
+              imagePriority={index < 4}
             />
           ))}
           {filteredMenu.length === 0 && (
@@ -3773,7 +3774,7 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
       <AdminImagePreviewModal
         imageSrc={
           showImagePreview
-            ? (String(item.image || '').trim() || menuItemImageSrc(item))
+            ? (String(item.image || '').trim() || menuItemImageSrc(item, { variant: 'full' }))
             : null
         }
         title={item.name}

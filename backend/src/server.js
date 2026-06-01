@@ -9,6 +9,11 @@ import { composeDeliveryAddress, normalizeCepDigits, quoteDeliveryFee, usesKmDel
 import { query } from './db.js'
 import multer from 'multer'
 import { normalizeMenuImageBuffer, normalizeMenuImageString } from './menuImage.js'
+import {
+  prefersWebp,
+  resolveImageVariant,
+  serveMenuItemImageFromStored,
+} from './serveMenuImage.js'
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes,
@@ -26,7 +31,7 @@ const imageUpload = multer({
   },
 })
 
-async function buildMenuItemPayloadWithImage(body) {
+async function buildMenuItemPayloadWithImage(body, { forUpdate = false } = {}) {
   const built = buildMenuItemPayload(body)
   if (built.error) {
     return built
@@ -34,8 +39,12 @@ async function buildMenuItemPayloadWithImage(body) {
 
   const imageRaw = String(built.payload.image || '').trim()
   if (!imageRaw) {
-    built.keepExistingImage = true
-    built.payload.image = null
+    if (forUpdate) {
+      built.keepExistingImage = true
+      built.payload.image = null
+    } else {
+      built.payload.image = ''
+    }
     return built
   }
 
@@ -136,21 +145,6 @@ function formatMenuItemForList(row, { includeImages = false } = {}) {
   return { ...rest, hasImage }
 }
 
-function decodeMenuItemImagePayload(imageValue) {
-  const raw = String(imageValue || '').trim()
-  if (!raw || raw.length < 64) return null
-  if (/^https?:\/\//i.test(raw)) {
-    return { redirect: raw }
-  }
-  const match = raw.match(/^data:image\/([a-z0-9+.-]+);base64,(.+)$/i)
-  if (!match) return null
-  const buffer = Buffer.from(match[2], 'base64')
-  if (buffer.length < 64) return null
-  let subtype = match[1].toLowerCase()
-  if (subtype === 'jpg') subtype = 'jpeg'
-  return { buffer, mime: `image/${subtype}` }
-}
-
 app.get('/menu-items', async (req, res) => {
   try {
     const includeInactive = req.query.all === '1'
@@ -175,6 +169,9 @@ app.get('/menu-items/:id/image', async (req, res) => {
     return res.status(400).end()
   }
 
+  const variant = resolveImageVariant(req.query.v ?? req.query.size)
+  const wantWebp = prefersWebp(req.headers.accept)
+
   try {
     const result = await query(
       `SELECT image_base64 AS image FROM menu_items WHERE id = $1`,
@@ -184,24 +181,34 @@ app.get('/menu-items/:id/image', async (req, res) => {
       return res.status(404).end()
     }
 
-    const decoded = decodeMenuItemImagePayload(result.rows[0].image)
-    if (!decoded) {
+    const served = await serveMenuItemImageFromStored(result.rows[0].image, {
+      itemId,
+      variant,
+      preferWebp: wantWebp,
+    })
+    if (!served) {
       return res.status(404).end()
     }
-    if (decoded.redirect) {
-      return res.redirect(302, decoded.redirect)
+    if (served.redirect) {
+      return res.redirect(302, served.redirect)
     }
 
-    res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400')
-    res.type(decoded.mime)
-    return res.send(decoded.buffer)
+    if (req.headers['if-none-match'] === served.etag) {
+      return res.status(304).end()
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable')
+    res.setHeader('ETag', served.etag)
+    res.setHeader('Vary', 'Accept')
+    res.type(served.mime)
+    return res.send(served.buffer)
   } catch {
     return res.status(500).end()
   }
 })
 
 app.post('/menu-items', async (req, res) => {
-  const built = await buildMenuItemPayloadWithImage(req.body)
+  const built = await buildMenuItemPayloadWithImage(req.body, { forUpdate: false })
   if (built.error) {
     return res.status(400).json({ message: built.error })
   }
@@ -240,7 +247,7 @@ app.put('/menu-items/:id', async (req, res) => {
     return res.status(400).json({ message: 'ID invalido' })
   }
 
-  const built = await buildMenuItemPayloadWithImage(req.body)
+  const built = await buildMenuItemPayloadWithImage(req.body, { forUpdate: true })
   if (built.error) {
     return res.status(400).json({ message: built.error })
   }
