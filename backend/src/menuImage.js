@@ -1,7 +1,8 @@
 import sharp from 'sharp'
 
-export const MENU_IMAGE_WIDTH = 800
-export const MENU_IMAGE_HEIGHT = 450
+/** Tamanho salvo no banco (cardápio mobile); menor = lista mais rápida. */
+export const MENU_IMAGE_WIDTH = 560
+export const MENU_IMAGE_HEIGHT = 315
 
 function decodeImageBuffer(imageInput) {
   const raw = String(imageInput || '').trim()
@@ -38,7 +39,7 @@ export async function normalizeMenuImageBuffer(buffer) {
       position: 'centre',
       withoutEnlargement: false,
     })
-    .jpeg({ quality: 82, mozjpeg: true })
+    .jpeg({ quality: 76, mozjpeg: true })
     .toBuffer()
 
   return `data:image/jpeg;base64,${output.toString('base64')}`

@@ -19,6 +19,7 @@ MIGRATIONS=(
   migrate_delivery_pricing.sql
   migrate_delivery_km_cep.sql
   migrate_menu_item_active.sql
+  migrate_orders_payment.sql
 )
 
 docker compose exec -T db psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -c "

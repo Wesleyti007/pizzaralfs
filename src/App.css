@@ -796,10 +796,15 @@ body.home-splash-active .brand-header {
 }
 
 .card-media--has-image {
-  background-image: var(--card-image);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background: #ebe6dc;
+}
+
+.card-media-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 
 .card-media--placeholder {
@@ -2058,7 +2063,8 @@ body.home-splash-active .brand-header {
   font-weight: 700;
 }
 
-.delivery-input {
+.delivery-input,
+.delivery-select {
   width: 100%;
   border: 1px solid rgba(197, 160, 89, 0.45);
   border-radius: 10px;
@@ -2067,6 +2073,10 @@ body.home-splash-active .brand-header {
   font-size: 0.92rem;
   background: #fff;
   color: var(--brand-dark);
+}
+
+.delivery-select {
+  cursor: pointer;
 }
 
 .delivery-input--invalid {
@@ -2166,7 +2176,8 @@ body.home-splash-active .brand-header {
   cursor: pointer;
 }
 
-.order-destination-field input {
+.order-destination-field input,
+.order-destination-field select {
   font-weight: 400;
   padding: 8px 10px;
   border-radius: 8px;

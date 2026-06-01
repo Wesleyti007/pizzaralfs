@@ -32,8 +32,15 @@ async function buildMenuItemPayloadWithImage(body) {
     return built
   }
 
+  const imageRaw = String(built.payload.image || '').trim()
+  if (!imageRaw) {
+    built.keepExistingImage = true
+    built.payload.image = null
+    return built
+  }
+
   try {
-    built.payload.image = await normalizeMenuImageString(built.payload.image)
+    built.payload.image = await normalizeMenuImageString(imageRaw)
   } catch (error) {
     return {
       error: error.message || 'Nao foi possivel processar a imagem.',
@@ -114,18 +121,82 @@ app.post('/menu-items/process-image', imageUpload.single('image'), async (req, r
   }
 })
 
+function rowHasStoredImage(raw) {
+  const value = String(raw || '').trim()
+  return value.length > 32
+}
+
+function formatMenuItemForList(row, { includeImages = false } = {}) {
+  const item = normalizeMenuItemRow(row)
+  const hasImage = rowHasStoredImage(item.image)
+  if (includeImages) {
+    return { ...item, hasImage }
+  }
+  const { image: _image, ...rest } = item
+  return { ...rest, hasImage }
+}
+
+function decodeMenuItemImagePayload(imageValue) {
+  const raw = String(imageValue || '').trim()
+  if (!raw || raw.length < 64) return null
+  if (/^https?:\/\//i.test(raw)) {
+    return { redirect: raw }
+  }
+  const match = raw.match(/^data:image\/([a-z0-9+.-]+);base64,(.+)$/i)
+  if (!match) return null
+  const buffer = Buffer.from(match[2], 'base64')
+  if (buffer.length < 64) return null
+  let subtype = match[1].toLowerCase()
+  if (subtype === 'jpg') subtype = 'jpeg'
+  return { buffer, mime: `image/${subtype}` }
+}
+
 app.get('/menu-items', async (req, res) => {
   try {
     const includeInactive = req.query.all === '1'
+    const includeImages = req.query.includeImages === '1'
     const result = await query(
       `SELECT ${MENU_ITEM_COLUMNS}
        FROM menu_items
        ${includeInactive ? '' : 'WHERE is_active = TRUE'}
        ORDER BY id DESC`,
     )
-    return res.json(result.rows.map((row) => normalizeMenuItemRow(row)))
+    return res.json(
+      result.rows.map((row) => formatMenuItemForList(row, { includeImages })),
+    )
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao listar produtos', detail: error.message })
+  }
+})
+
+app.get('/menu-items/:id/image', async (req, res) => {
+  const itemId = Number(req.params.id)
+  if (!Number.isInteger(itemId)) {
+    return res.status(400).end()
+  }
+
+  try {
+    const result = await query(
+      `SELECT image_base64 AS image FROM menu_items WHERE id = $1`,
+      [itemId],
+    )
+    if (!result.rows.length) {
+      return res.status(404).end()
+    }
+
+    const decoded = decodeMenuItemImagePayload(result.rows[0].image)
+    if (!decoded) {
+      return res.status(404).end()
+    }
+    if (decoded.redirect) {
+      return res.redirect(302, decoded.redirect)
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400')
+    res.type(decoded.mime)
+    return res.send(decoded.buffer)
+  } catch {
+    return res.status(500).end()
   }
 })
 
@@ -154,7 +225,9 @@ app.post('/menu-items', async (req, res) => {
         payload.isActive !== false,
       ],
     )
-    return res.status(201).json(normalizeMenuItemRow(result.rows[0]))
+    return res
+      .status(201)
+      .json(formatMenuItemForList(result.rows[0], { includeImages: true }))
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao criar produto', detail: error.message })
   }
@@ -175,38 +248,53 @@ app.put('/menu-items/:id', async (req, res) => {
   const { payload } = built
 
   try {
-    const result = await query(
-      `UPDATE menu_items
-       SET category = $2,
-           subcategory = $3,
-           name = $4,
-           description = $5,
-           price = $6,
-           delivery_price = $7,
-           sizes = $8,
-           image_base64 = $9,
-           is_active = $10
-       WHERE id = $1
-       RETURNING ${MENU_ITEM_COLUMNS}`,
-      [
-        itemId,
-        payload.category,
-        payload.subcategory,
-        payload.name,
-        payload.description,
-        payload.price,
-        payload.deliveryPrice,
-        JSON.stringify(payload.sizes),
-        payload.image,
-        payload.isActive !== false,
-      ],
-    )
+    const baseParams = [
+      itemId,
+      payload.category,
+      payload.subcategory,
+      payload.name,
+      payload.description,
+      payload.price,
+      payload.deliveryPrice,
+      JSON.stringify(payload.sizes),
+    ]
+
+    const result = built.keepExistingImage
+      ? await query(
+          `UPDATE menu_items
+           SET category = $2,
+               subcategory = $3,
+               name = $4,
+               description = $5,
+               price = $6,
+               delivery_price = $7,
+               sizes = $8,
+               is_active = $9
+           WHERE id = $1
+           RETURNING ${MENU_ITEM_COLUMNS}`,
+          [...baseParams, payload.isActive !== false],
+        )
+      : await query(
+          `UPDATE menu_items
+           SET category = $2,
+               subcategory = $3,
+               name = $4,
+               description = $5,
+               price = $6,
+               delivery_price = $7,
+               sizes = $8,
+               image_base64 = $9,
+               is_active = $10
+           WHERE id = $1
+           RETURNING ${MENU_ITEM_COLUMNS}`,
+          [...baseParams, payload.image, payload.isActive !== false],
+        )
 
     if (result.rowCount === 0) {
       return res.status(404).json({ message: 'Produto nao encontrado' })
     }
 
-    return res.json(normalizeMenuItemRow(result.rows[0]))
+    return res.json(formatMenuItemForList(result.rows[0], { includeImages: true }))
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao atualizar produto', detail: error.message })
   }
@@ -290,7 +378,39 @@ const ORDER_RETURNING = `id, table_number AS "tableNumber", order_type AS "order
   customer_cep AS "customerCep", delivery_address AS "deliveryAddress",
   delivery_reference AS "deliveryReference", delivery_distance_km AS "deliveryDistanceKm",
   items_subtotal AS "itemsSubtotal", delivery_fee AS "deliveryFee",
+  payment_method AS "paymentMethod", payment_change_for AS "paymentChangeFor",
   observation, total_amount AS "totalAmount", status, created_at AS "createdAt"`
+
+const ALLOWED_PAYMENT_METHODS = new Set(['pix', 'cash', 'credit', 'debit'])
+
+function parsePaymentChangeFor(value) {
+  if (value === null || value === undefined || value === '') return null
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+  return Math.round(numeric * 100) / 100
+}
+
+function validateDeliveryPayment({ paymentMethod, paymentChangeFor, totalAmount }) {
+  const method = String(paymentMethod ?? '').trim()
+  if (!ALLOWED_PAYMENT_METHODS.has(method)) {
+    return { ok: false, message: 'Selecione a forma de pagamento' }
+  }
+  if (method === 'cash') {
+    const changeFor = parsePaymentChangeFor(paymentChangeFor)
+    if (changeFor == null) {
+      return { ok: false, message: 'Informe para quanto precisa de troco (valor em dinheiro)' }
+    }
+    const total = Number(totalAmount)
+    if (Number.isFinite(total) && changeFor + 0.009 < total) {
+      return {
+        ok: false,
+        message: 'O valor para troco deve ser igual ou maior que o total do pedido',
+      }
+    }
+    return { ok: true, paymentMethod: method, paymentChangeFor: changeFor }
+  }
+  return { ok: true, paymentMethod: method, paymentChangeFor: null }
+}
 
 function resolveOrderType(tableNumber, requestedType) {
   if (requestedType === 'delivery') return 'delivery'
@@ -298,7 +418,15 @@ function resolveOrderType(tableNumber, requestedType) {
   return tableNumber ? 'table' : 'delivery'
 }
 
-function validateDeliveryFields({ customerName, customerPhone, deliveryAddress, deliveryReference }) {
+function validateDeliveryFields({
+  customerName,
+  customerPhone,
+  deliveryAddress,
+  deliveryReference,
+  paymentMethod,
+  paymentChangeFor,
+  totalAmount,
+}) {
   if (!customerName) {
     return { ok: false, message: 'Informe o nome para delivery' }
   }
@@ -311,7 +439,11 @@ function validateDeliveryFields({ customerName, customerPhone, deliveryAddress, 
   if (!deliveryReference) {
     return { ok: false, message: 'Informe o ponto de referencia' }
   }
-  return { ok: true }
+  const payment = validateDeliveryPayment({ paymentMethod, paymentChangeFor, totalAmount })
+  if (!payment.ok) {
+    return payment
+  }
+  return { ok: true, paymentMethod: payment.paymentMethod, paymentChangeFor: payment.paymentChangeFor }
 }
 
 app.post('/orders', async (req, res) => {
@@ -336,6 +468,8 @@ app.post('/orders', async (req, res) => {
   let deliveryReference = ''
   let deliveryDistanceKm = null
   let resolvedDeliveryFee = deliveryFee
+  let paymentMethod = ''
+  let paymentChangeFor = null
 
   if (orderType === 'delivery') {
     customerName = String(req.body.customerName ?? '').trim()
@@ -356,15 +490,22 @@ app.post('/orders', async (req, res) => {
       String(req.body.deliveryAddress ?? '').trim() ||
       composeDeliveryAddress(customerPayload)
 
+    const totalAmountPreview = Number(req.body.totalAmount ?? itemsSubtotal + deliveryFee)
+
     const check = validateDeliveryFields({
       customerName,
       customerPhone,
       deliveryAddress,
       deliveryReference,
+      paymentMethod: req.body.paymentMethod,
+      paymentChangeFor: req.body.paymentChangeFor,
+      totalAmount: totalAmountPreview,
     })
     if (!check.ok) {
       return res.status(400).json({ message: check.message })
     }
+    paymentMethod = check.paymentMethod
+    paymentChangeFor = check.paymentChangeFor
 
     const settings = await loadCatalogSettings(query)
 
@@ -405,9 +546,10 @@ app.post('/orders', async (req, res) => {
       `INSERT INTO orders (
          table_number, order_type, customer_name, customer_phone, customer_cep,
          delivery_address, delivery_reference, delivery_distance_km,
-         items_subtotal, delivery_fee, observation, total_amount
+         items_subtotal, delivery_fee, payment_method, payment_change_for,
+         observation, total_amount
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING ${ORDER_RETURNING}`,
       [
         orderType === 'table' ? tableNumber : null,
@@ -420,6 +562,8 @@ app.post('/orders', async (req, res) => {
         deliveryDistanceKm,
         itemsSubtotal,
         resolvedDeliveryFee,
+        paymentMethod,
+        paymentChangeFor,
         observation ?? '',
         totalAmount,
       ],
@@ -566,17 +710,33 @@ app.patch('/orders/:id', async (req, res) => {
   let customerPhone = normalizePhoneDigits(req.body.customerPhone)
   let deliveryAddress = String(req.body.deliveryAddress ?? '').trim()
   let deliveryReference = String(req.body.deliveryReference ?? '').trim()
+  let paymentMethod = ''
+  let paymentChangeFor = null
 
   if (orderType === 'delivery') {
+    const existing = await query(
+      `SELECT total_amount AS "totalAmount" FROM orders WHERE id = $1`,
+      [orderId],
+    )
+    const totalAmount =
+      Number(req.body.totalAmount) ||
+      Number(existing.rows[0]?.totalAmount) ||
+      0
+
     const check = validateDeliveryFields({
       customerName,
       customerPhone,
       deliveryAddress,
       deliveryReference,
+      paymentMethod: req.body.paymentMethod,
+      paymentChangeFor: req.body.paymentChangeFor,
+      totalAmount,
     })
     if (!check.ok) {
       return res.status(400).json({ message: check.message })
     }
+    paymentMethod = check.paymentMethod
+    paymentChangeFor = check.paymentChangeFor
   } else {
     if (!tableNumber) {
       return res.status(400).json({ message: 'Informe o numero da mesa' })
@@ -585,6 +745,8 @@ app.patch('/orders/:id', async (req, res) => {
     customerPhone = ''
     deliveryAddress = ''
     deliveryReference = ''
+    paymentMethod = ''
+    paymentChangeFor = null
   }
 
   try {
@@ -595,7 +757,9 @@ app.patch('/orders/:id', async (req, res) => {
            customer_name = $4,
            customer_phone = $5,
            delivery_address = $6,
-           delivery_reference = $7
+           delivery_reference = $7,
+           payment_method = $8,
+           payment_change_for = $9
        WHERE id = $1
        RETURNING ${ORDER_RETURNING}`,
       [
@@ -606,6 +770,8 @@ app.patch('/orders/:id', async (req, res) => {
         customerPhone,
         deliveryAddress,
         deliveryReference,
+        paymentMethod,
+        paymentChangeFor,
       ],
     )
 

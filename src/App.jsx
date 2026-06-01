@@ -45,6 +45,7 @@ import {
 import { printOrderDocument } from './orderPrint.js'
 import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
+import { menuItemImageSrc, menuItemsForStorage } from './menuItemImage.js'
 import { downloadOrderReceiptImage } from './orderReceiptImage.js'
 import { PizzaSlicePicker } from './PizzaSlicePicker.jsx'
 import {
@@ -56,6 +57,11 @@ import {
   saveDeliveryInfoToSession,
   validateDeliveryInfo,
 } from './delivery.js'
+import {
+  formatPaymentSummary,
+  isCashPayment,
+  PAYMENT_METHODS,
+} from './payment.js'
 
 export const DEFAULT_DELIVERY_SETTINGS = {
   deliveryFee: 0,
@@ -309,8 +315,12 @@ function buildMenuItemApiPayload(item, isActive) {
     subcategory: item.subcategory || '',
     name: item.name,
     description: item.description || '',
-    image: typeof item.image === 'string' ? item.image : '',
     isActive: isActive !== false,
+  }
+
+  const imageValue = typeof item.image === 'string' ? item.image.trim() : ''
+  if (imageValue) {
+    payload.image = imageValue
   }
 
   if (isPizzaCategory(item.category)) {
@@ -332,13 +342,19 @@ function buildMenuItemApiPayload(item, isActive) {
 function normalizeMenuItems(items, categories) {
   return items.map((item) => {
     const normalized = normalizeMenuItemCategories(item, categories)
+    const image = typeof item.image === 'string' ? item.image : ''
     return {
       ...normalizeMenuItemSizes(normalized),
       id: normalizeItemId(item.id),
-      image: typeof item.image === 'string' ? item.image : '',
+      image,
+      hasImage: item.hasImage === true || hasMenuItemImage(image),
       isActive: item.isActive !== false,
     }
   })
+}
+
+function persistMenuItems(items) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(menuItemsForStorage(items)))
 }
 
 function loadCategories() {
@@ -407,7 +423,7 @@ function App() {
 
   useEffect(() => {
     let cancelled = false
-    const menuQuery = isAuthenticated ? '?all=1' : ''
+    const menuQuery = isAuthenticated ? '?all=1&includeImages=1' : ''
 
     const loadDataFromApi = async () => {
       let nextCategories = categories
@@ -443,7 +459,7 @@ function App() {
           if (Array.isArray(items) && items.length > 0) {
             const normalizedItems = normalizeMenuItems(items, nextCategories)
             setMenuItems(normalizedItems)
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedItems))
+            persistMenuItems(normalizedItems)
             setMenuSyncMessage('')
           } else {
             setMenuSyncMessage('Nenhum produto na API. Usando cardápio local.')
@@ -495,7 +511,7 @@ function App() {
     const createdItem = await response.json()
     const updated = normalizeMenuItems([createdItem, ...menuItems], categories)
     setMenuItems(updated)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+    persistMenuItems(updated)
     setMenuSyncMessage('')
   }
 
@@ -526,7 +542,7 @@ function App() {
       categories,
     )
     setMenuItems(updated)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+    persistMenuItems(updated)
     setMenuSyncMessage('')
   }
 
@@ -547,7 +563,7 @@ function App() {
       localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(saved))
       const updatedMenu = normalizeMenuItems(menuItems, saved)
       setMenuItems(updatedMenu)
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedMenu))
+      persistMenuItems(updatedMenu)
       return { ok: true }
     } catch {
       setCategories(normalized)
@@ -567,7 +583,7 @@ function App() {
 
     const updated = menuItems.filter((item) => !sameItemId(item.id, itemId))
     setMenuItems(updated)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+    persistMenuItems(updated)
     setMenuSyncMessage('')
   }
 
@@ -599,7 +615,7 @@ function App() {
       categories,
     )
     setMenuItems(updated)
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+    persistMenuItems(updated)
     setMenuSyncMessage('')
     return updatedItem
   }
@@ -918,6 +934,8 @@ function OrderPanel({
   const phoneId = onClose ? 'delivery-phone-mobile' : 'delivery-phone'
   const addressId = onClose ? 'delivery-address-mobile' : 'delivery-address'
   const referenceId = onClose ? 'delivery-reference-mobile' : 'delivery-reference'
+  const paymentMethodId = onClose ? 'delivery-payment-mobile' : 'delivery-payment'
+  const paymentChangeId = onClose ? 'delivery-change-mobile' : 'delivery-change'
   return (
     <aside className={className}>
       <div className="order-panel-head">
@@ -1049,6 +1067,58 @@ function OrderPanel({
               />
               {deliveryFieldErrors.deliveryReference && (
                 <p className="delivery-field-error">{deliveryFieldErrors.deliveryReference}</p>
+              )}
+              <label className="observation-label" htmlFor={paymentMethodId}>
+                Forma de pagamento <span className="required-mark">*</span>
+              </label>
+              <select
+                id={paymentMethodId}
+                name="payment-method"
+                className={`delivery-input delivery-select${deliveryFieldErrors.paymentMethod ? ' delivery-input--invalid' : ''}`}
+                required
+                aria-required="true"
+                aria-invalid={deliveryFieldErrors.paymentMethod ? 'true' : undefined}
+                value={deliveryInfo.paymentMethod}
+                onChange={(event) => onDeliveryFieldChange('paymentMethod', event.target.value)}
+              >
+                <option value="">Selecione</option>
+                {PAYMENT_METHODS.map((method) => (
+                  <option key={method.id} value={method.id}>
+                    {method.label}
+                  </option>
+                ))}
+              </select>
+              {deliveryFieldErrors.paymentMethod && (
+                <p className="delivery-field-error">{deliveryFieldErrors.paymentMethod}</p>
+              )}
+              {isCashPayment(deliveryInfo.paymentMethod) && (
+                <>
+                  <label className="observation-label" htmlFor={paymentChangeId}>
+                    Troco para quanto? <span className="required-mark">*</span>
+                  </label>
+                  <input
+                    id={paymentChangeId}
+                    name="payment-change"
+                    type="text"
+                    inputMode="decimal"
+                    className={`delivery-input${deliveryFieldErrors.paymentChangeFor ? ' delivery-input--invalid' : ''}`}
+                    required
+                    aria-required="true"
+                    aria-invalid={deliveryFieldErrors.paymentChangeFor ? 'true' : undefined}
+                    value={deliveryInfo.paymentChangeFor}
+                    onChange={(event) =>
+                      onDeliveryFieldChange('paymentChangeFor', event.target.value)
+                    }
+                    placeholder="Ex: 50,00 ou 100,00"
+                  />
+                  <p className="delivery-field-hint">
+                    Informe o valor em dinheiro que você vai pagar (nota/cédula), para levarmos
+                    troco. Total do pedido: R$ {total.toFixed(2).replace('.', ',')}.
+                  </p>
+                  {deliveryFieldErrors.paymentChangeFor && (
+                    <p className="delivery-field-error">{deliveryFieldErrors.paymentChangeFor}</p>
+                  )}
+                </>
               )}
               {deliveryFieldError && <p className="order-message">{deliveryFieldError}</p>}
             </div>
@@ -1231,7 +1301,8 @@ function MenuItemCard({
   }
 
   const addDisabled = selectedFlavors.length === 0
-  const showImage = hasMenuItemImage(menuItem.image)
+  const showImage = hasMenuItemImage(menuItem)
+  const imageSrc = menuItemImageSrc(menuItem)
   const placeholderStyle = showImage
     ? undefined
     : { '--placeholder-logo': `url(${LOGO_URL})` }
@@ -1240,14 +1311,18 @@ function MenuItemCard({
     <article className="card">
       <div
         className={`card-media${showImage ? ' card-media--has-image' : ' card-media--placeholder'}`}
-        style={
-          showImage
-            ? { '--card-image': `url(${JSON.stringify(menuItem.image.trim())})` }
-            : placeholderStyle
-        }
-        role={showImage ? 'img' : undefined}
-        aria-label={showImage ? menuItem.name : undefined}
-      />
+        style={placeholderStyle}
+      >
+        {showImage && imageSrc ? (
+          <img
+            src={imageSrc}
+            alt={menuItem.name}
+            className="card-media-img"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : null}
+      </div>
       <h3>{menuItem.name}</h3>
       <p className="card-description">({menuItem.description})</p>
 
@@ -1332,17 +1407,6 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
   const mesaCadastrada = mesaIdentificada && tables.includes(mesa)
   const isDelivery = !mesaIdentificada
 
-  const deliveryValidation = useMemo(
-    () => (isDelivery ? validateDeliveryInfo(deliveryInfo) : { ok: true }),
-    [isDelivery, deliveryInfo],
-  )
-  const canFinalize = !isDelivery || deliveryValidation.ok
-  const deliveryFieldErrors = useMemo(() => {
-    if (!isDelivery || cart.length === 0) return {}
-    if (deliveryValidation.ok) return {}
-    return getDeliveryFieldErrors(deliveryInfo)
-  }, [isDelivery, cart.length, deliveryValidation.ok, deliveryInfo])
-
   useEffect(() => {
     if (mesa) persistTableNumber(mesa)
   }, [mesa])
@@ -1400,6 +1464,17 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     [cart],
   )
 
+  const deliveryValidation = useMemo(
+    () => (isDelivery ? validateDeliveryInfo(deliveryInfo, { orderTotal: total }) : { ok: true }),
+    [isDelivery, deliveryInfo, total],
+  )
+  const canFinalize = !isDelivery || deliveryValidation.ok
+  const deliveryFieldErrors = useMemo(() => {
+    if (!isDelivery || cart.length === 0) return {}
+    if (deliveryValidation.ok) return {}
+    return getDeliveryFieldErrors(deliveryInfo, { orderTotal: total })
+  }, [isDelivery, cart.length, deliveryValidation.ok, deliveryInfo, total])
+
   useEffect(() => {
     setOrderOpen(false)
   }, [location.pathname, location.search])
@@ -1433,6 +1508,14 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
 
   const handleDeliveryFieldChange = (field, value) => {
     setDeliveryFieldError('')
+    if (field === 'paymentMethod' && !isCashPayment(value)) {
+      setDeliveryInfo((current) => ({
+        ...current,
+        paymentMethod: value,
+        paymentChangeFor: '',
+      }))
+      return
+    }
     if (field === 'customerPhone') {
       const digits = normalizePhoneDigits(value)
       setDeliveryInfo((current) => ({
@@ -1469,6 +1552,8 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
       customerPhone: deliveryData?.customerPhone || '',
       deliveryAddress: deliveryData?.deliveryAddress || '',
       deliveryReference: deliveryData?.deliveryReference || '',
+      paymentMethod: deliveryData?.paymentMethod || '',
+      paymentChangeFor: deliveryData?.paymentChangeFor ?? null,
       observation: observation.trim(),
       items: cart.map((item) => ({
         id: item.id,
@@ -1534,6 +1619,8 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
         customerPhone: createdOrder.customerPhone || '',
         deliveryAddress: createdOrder.deliveryAddress || '',
         deliveryReference: createdOrder.deliveryReference || '',
+        paymentMethod: createdOrder.paymentMethod || '',
+        paymentChangeFor: createdOrder.paymentChangeFor ?? null,
         observation: createdOrder.observation || '',
         items: orderPayload.items,
         itemsSubtotal: Number(createdOrder.itemsSubtotal ?? subtotal),
@@ -1991,6 +2078,12 @@ function OrderDestinationEditor({ order, onSaved, onCancel }) {
   )
   const [deliveryAddress, setDeliveryAddress] = useState(order.deliveryAddress || '')
   const [deliveryReference, setDeliveryReference] = useState(order.deliveryReference || '')
+  const [paymentMethod, setPaymentMethod] = useState(order.paymentMethod || '')
+  const [paymentChangeFor, setPaymentChangeFor] = useState(
+    order.paymentChangeFor != null && order.paymentChangeFor !== ''
+      ? String(order.paymentChangeFor).replace('.', ',')
+      : '',
+  )
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -2011,12 +2104,17 @@ function OrderDestinationEditor({ order, onSaved, onCancel }) {
         return
       }
       if (orderType === 'delivery') {
-        const check = validateDeliveryInfo({
-          customerName,
-          customerPhone,
-          deliveryAddress,
-          deliveryReference,
-        })
+        const check = validateDeliveryInfo(
+          {
+            customerName,
+            customerPhone,
+            deliveryAddress,
+            deliveryReference,
+            paymentMethod,
+            paymentChangeFor,
+          },
+          { orderTotal: Number(order.totalAmount) },
+        )
         if (!check.ok) {
           setFormError(check.message)
           return
@@ -2026,6 +2124,8 @@ function OrderDestinationEditor({ order, onSaved, onCancel }) {
         payload.customerPhone = data.customerPhone
         payload.deliveryAddress = data.deliveryAddress
         payload.deliveryReference = data.deliveryReference
+        payload.paymentMethod = data.paymentMethod
+        payload.paymentChangeFor = data.paymentChangeFor
       }
       const updated = await patchOrderDetails(API_BASE_URL, order.id, payload)
       onSaved(updated)
@@ -2093,6 +2193,34 @@ function OrderDestinationEditor({ order, onSaved, onCancel }) {
               onChange={(e) => setDeliveryReference(e.target.value)}
             />
           </label>
+          <label className="order-destination-field">
+            Forma de pagamento
+            <select
+              className="delivery-select"
+              value={paymentMethod}
+              onChange={(e) => {
+                setPaymentMethod(e.target.value)
+                if (!isCashPayment(e.target.value)) setPaymentChangeFor('')
+              }}
+            >
+              <option value="">Selecione</option>
+              {PAYMENT_METHODS.map((method) => (
+                <option key={method.id} value={method.id}>
+                  {method.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {isCashPayment(paymentMethod) ? (
+            <label className="order-destination-field">
+              Troco para quanto?
+              <input
+                value={paymentChangeFor}
+                onChange={(e) => setPaymentChangeFor(e.target.value)}
+                placeholder="Ex: 100,00"
+              />
+            </label>
+          ) : null}
         </div>
       )}
       {formError && <p className="orders-page-error">{formError}</p>}
@@ -2535,6 +2663,12 @@ function OrdersPage() {
                     <p>
                       <strong>Referência:</strong> {order.deliveryReference || '—'}
                     </p>
+                    {order.paymentMethod ? (
+                      <p>
+                        <strong>Pagamento:</strong>{' '}
+                        {formatPaymentSummary(order.paymentMethod, order.paymentChangeFor)}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
                 {order.observation ? (
@@ -3598,7 +3732,7 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
           <div className="admin-item-meta-row">
             <dt>Imagem</dt>
             <dd>
-              {hasMenuItemImage(item.image) ? (
+              {hasMenuItemImage(item) ? (
                 <button
                   type="button"
                   className="admin-view-photo-btn"
@@ -3637,7 +3771,11 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
       </div>
 
       <AdminImagePreviewModal
-        imageSrc={showImagePreview ? item.image : null}
+        imageSrc={
+          showImagePreview
+            ? (String(item.image || '').trim() || menuItemImageSrc(item))
+            : null
+        }
         title={item.name}
         onClose={() => setShowImagePreview(false)}
       />

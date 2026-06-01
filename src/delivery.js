@@ -1,3 +1,10 @@
+import {
+  formatPaymentSummary,
+  getPaymentFieldErrors as getPaymentFieldErrorsFromModule,
+  isCashPayment,
+  normalizePaymentForOrder,
+} from './payment.js'
+
 export const DELIVERY_INFO_STORAGE_KEY = 'pizza-ralfs-delivery-info'
 
 const EMPTY_DELIVERY = {
@@ -5,6 +12,8 @@ const EMPTY_DELIVERY = {
   customerPhone: '',
   deliveryAddress: '',
   deliveryReference: '',
+  paymentMethod: '',
+  paymentChangeFor: '',
 }
 
 export function isDeliveryOrder(tableNumber, orderType) {
@@ -35,6 +44,11 @@ export function loadDeliveryInfoFromSession() {
         parsed.deliveryAddress || legacyAddress || parsed.deliveryStreet || '',
       ).trim(),
       deliveryReference: String(parsed.deliveryReference || '').trim(),
+      paymentMethod: String(parsed.paymentMethod || '').trim(),
+      paymentChangeFor:
+        parsed.paymentChangeFor != null && parsed.paymentChangeFor !== ''
+          ? String(parsed.paymentChangeFor)
+          : '',
     }
   } catch {
     return { ...EMPTY_DELIVERY }
@@ -80,7 +94,7 @@ export function whatsAppLink(phoneDigits) {
   return `https://wa.me/${digits}`
 }
 
-export function getDeliveryFieldErrors(info) {
+export function getDeliveryFieldErrors(info, options = {}) {
   const customerName = String(info?.customerName || '').trim()
   const customerPhone = normalizePhoneDigits(info?.customerPhone)
   const deliveryAddress = String(info?.deliveryAddress || '').trim()
@@ -91,6 +105,9 @@ export function getDeliveryFieldErrors(info) {
   if (customerPhone.length < 12) errors.customerPhone = 'WhatsApp obrigatório (com DDD)'
   if (!deliveryAddress) errors.deliveryAddress = 'Obrigatório'
   if (!deliveryReference) errors.deliveryReference = 'Obrigatório'
+
+  const paymentErrors = getPaymentFieldErrorsFromModule(info, options)
+  Object.assign(errors, paymentErrors)
   return errors
 }
 
@@ -98,8 +115,8 @@ export function isDeliveryInfoComplete(info) {
   return Object.keys(getDeliveryFieldErrors(info)).length === 0
 }
 
-export function validateDeliveryInfo(info) {
-  const errors = getDeliveryFieldErrors(info)
+export function validateDeliveryInfo(info, options = {}) {
+  const errors = getDeliveryFieldErrors(info, options)
   const firstKey = Object.keys(errors)[0]
   if (firstKey) {
     const messages = {
@@ -107,8 +124,17 @@ export function validateDeliveryInfo(info) {
       customerPhone: 'Informe um WhatsApp válido com DDD (obrigatório).',
       deliveryAddress: 'Informe o endereço de entrega (obrigatório).',
       deliveryReference: 'Informe o ponto de referência (obrigatório).',
+      paymentMethod: 'Selecione a forma de pagamento.',
+      paymentChangeFor: isCashPayment(info?.paymentMethod)
+        ? 'Informe para quanto precisa de troco (valor da nota/cédula).'
+        : 'Valor de troco inválido.',
     }
     return { ok: false, message: messages[firstKey] || 'Preencha todos os campos obrigatórios.' }
+  }
+
+  const payment = normalizePaymentForOrder(info, options)
+  if (!payment.ok) {
+    return { ok: false, message: 'Verifique a forma de pagamento.' }
   }
 
   return {
@@ -118,6 +144,8 @@ export function validateDeliveryInfo(info) {
       customerPhone: normalizePhoneDigits(info?.customerPhone),
       deliveryAddress: buildDeliveryAddressForOrder(info),
       deliveryReference: String(info?.deliveryReference || '').trim(),
+      paymentMethod: payment.data.paymentMethod,
+      paymentChangeFor: payment.data.paymentChangeFor,
     },
   }
 }
@@ -126,10 +154,14 @@ export function formatDeliverySummary(order) {
   if (!isDeliveryOrder(order?.tableNumber ?? order?.mesa, order?.orderType)) {
     return null
   }
-  return [
+  const lines = [
     order.customerName || 'Cliente',
     formatPhoneDisplay(order.customerPhone),
     order.deliveryAddress,
     `Ref.: ${order.deliveryReference || '—'}`,
-  ].filter(Boolean)
+  ]
+  if (order.paymentMethod) {
+    lines.push(`Pagamento: ${formatPaymentSummary(order.paymentMethod, order.paymentChangeFor)}`)
+  }
+  return lines.filter(Boolean)
 }

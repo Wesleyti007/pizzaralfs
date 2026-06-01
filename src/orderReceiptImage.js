@@ -1,4 +1,5 @@
 import { formatPhoneDisplay, isDeliveryOrder } from './delivery.js'
+import { formatPaymentSummary } from './payment.js'
 
 const RECEIPT_WIDTH = 420
 const PADDING = 28
@@ -55,6 +56,12 @@ function buildReceiptLines(order) {
     lines.push({ text: `WhatsApp: ${formatPhoneDisplay(order.customerPhone)}` })
     lines.push({ text: `Endereço: ${order.deliveryAddress || ''}`, wrap: true })
     lines.push({ text: `Referência: ${order.deliveryReference || ''}`, wrap: true })
+    if (order.paymentMethod) {
+      lines.push({
+        text: `Pagamento: ${formatPaymentSummary(order.paymentMethod, order.paymentChangeFor)}`,
+        wrap: true,
+      })
+    }
   } else {
     const mesa = order.mesa ?? order.tableNumber
     lines.push({ text: mesa ? `Mesa ${mesa}` : 'Mesa não identificada' })

@@ -3,6 +3,7 @@ export const THERMAL_PAPER_MM = 80
 export const THERMAL_PRINT_WIDTH_MM = 72
 
 import { formatPhoneDisplay, isDeliveryOrder } from './delivery.js'
+import { formatPaymentSummary } from './payment.js'
 import {
   formatOrderDateTime,
   formatOrderMoney,
@@ -46,6 +47,11 @@ function buildDeliveryBlockHtml(order, { canhoto = false } = {}) {
       <p class="print-line print-delivery-field"><span class="print-lbl">WhatsApp:</span> ${escapeHtml(phone)}</p>
       <p class="print-line print-delivery-field"><span class="print-lbl">Endereco:</span> ${escapeHtml(order.deliveryAddress || '')}</p>
       <p class="print-line print-delivery-field"><span class="print-lbl">Referencia:</span> ${escapeHtml(order.deliveryReference || '')}</p>
+      ${
+        order.paymentMethod
+          ? `<p class="print-line print-delivery-field"><span class="print-lbl">Pagamento:</span> ${escapeHtml(formatPaymentSummary(order.paymentMethod, order.paymentChangeFor))}</p>`
+          : ''
+      }
       ${
         order.deliveryDistanceKm != null
           ? `<p class="print-line print-delivery-field"><span class="print-lbl">Distancia:</span> ${escapeHtml(String(order.deliveryDistanceKm))} km</p>`
