@@ -1493,13 +1493,19 @@ body.home-splash-active .brand-header {
   padding-bottom: 4px;
 }
 
+#order-mobile-root {
+  position: relative;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+#order-mobile-root > * {
+  pointer-events: auto;
+}
+
+.order-mobile-dock,
 .order-mobile-layer {
   display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  pointer-events: none;
-  overflow: hidden;
 }
 
 .order-panel--desktop {
@@ -1540,7 +1546,6 @@ body.home-splash-active .brand-header {
   color: var(--brand-text-muted);
 }
 
-.order-mobile-bar,
 .order-drawer-backdrop {
   display: none;
 }
@@ -3422,45 +3427,36 @@ body.home-splash-active .brand-header {
     scroll-snap-align: start;
   }
 
-  .order-mobile-layer {
-    display: block;
+  .home-layout > .order-panel--desktop,
+  .home-layout > .basket.order-panel--desktop {
+    display: none !important;
   }
 
   .order-panel--desktop {
     display: none !important;
   }
 
-  .order-mobile-bar {
+  .order-mobile-dock {
     display: block;
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 1210;
+    z-index: 2000;
+    box-sizing: border-box;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
     background: var(--brand-cream-bg);
     border-top: 1px solid rgba(197, 160, 89, 0.35);
-    box-shadow: 0 -6px 24px rgba(28, 22, 20, 0.12);
-    pointer-events: none;
-    transition: opacity 0.2s ease, transform 0.22s ease;
-    transform: translate3d(0, 0, 0);
-  }
-
-  .order-mobile-bar--hidden {
-    opacity: 0;
-    transform: translate3d(0, 100%, 0);
-    pointer-events: none;
-  }
-
-  .order-mobile-bar-btn {
-    pointer-events: auto;
+    box-shadow: 0 -6px 24px rgba(28, 22, 20, 0.14);
   }
 
   .order-drawer-backdrop {
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 1250;
+    z-index: 2100;
     border: none;
     padding: 0;
     margin: 0;
@@ -3468,13 +3464,13 @@ body.home-splash-active .brand-header {
     cursor: pointer;
   }
 
-  .order-mobile-layer .order-panel--sheet {
+  .order-panel--sheet.order-panel-open {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     top: auto;
-    z-index: 1300;
+    z-index: 2200;
     order: unset;
     margin: 0;
     width: 100%;
@@ -3482,28 +3478,17 @@ body.home-splash-active .brand-header {
     max-height: min(92dvh, 92vh);
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -8px 32px rgba(28, 22, 20, 0.2);
-    transform: translate3d(0, 100%, 0);
-    transition: transform 0.28s ease, visibility 0.28s, opacity 0.28s;
-    visibility: hidden;
-    opacity: 0;
     overflow: hidden;
     box-sizing: border-box;
     padding-left: env(safe-area-inset-left, 0px);
     padding-right: env(safe-area-inset-right, 0px);
-    will-change: transform;
   }
 
-  .order-mobile-layer .order-panel--sheet.order-panel-open {
-    transform: translate3d(0, 0, 0);
-    visibility: visible;
-    opacity: 1;
-  }
-
-  .order-mobile-layer .order-panel--sheet .order-panel-scroll {
+  .order-panel--sheet.order-panel-open .order-panel-scroll {
     padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   }
 
-  .order-mobile-layer .order-panel--sheet .order-panel-close {
+  .order-panel--sheet.order-panel-open .order-panel-close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3513,16 +3498,8 @@ body.home-splash-active .brand-header {
     font-size: 1.35rem;
   }
 
-  .order-mobile-layer .order-panel--sheet .order-panel-close span {
+  .order-panel--sheet.order-panel-open .order-panel-close span {
     line-height: 1;
-  }
-
-  .order-mobile-layer .order-panel--sheet:not(.order-panel-open) {
-    pointer-events: none;
-  }
-
-  .order-mobile-layer .order-panel--sheet.order-panel-open {
-    pointer-events: auto;
   }
 
   .menu-grid {
@@ -3705,7 +3682,9 @@ body.home-splash-active .brand-header {
 
 /* Desktop: navbar em linha + pedido na lateral */
 @media (min-width: 901px) {
-  .order-mobile-layer {
+  .order-mobile-dock,
+  .order-drawer-backdrop,
+  .order-panel--sheet {
     display: none !important;
   }
 

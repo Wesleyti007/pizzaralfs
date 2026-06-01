@@ -1821,35 +1821,40 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     />
   )
 
-  const mobileOrderUi = createPortal(
-    <div className="order-mobile-layer">
-      {orderOpen && (
-        <button
-          type="button"
-          className="order-drawer-backdrop"
-          aria-label="Fechar pedido"
-          onClick={() => setOrderOpen(false)}
-        />
-      )}
-      {!orderOpen && (
-        <div className="order-mobile-bar">
+  const orderMobileRoot =
+    typeof document !== 'undefined' ? document.getElementById('order-mobile-root') : null
+
+  const mobileOrderUi =
+    orderMobileRoot &&
+    createPortal(
+      <>
+        {!orderOpen && (
+          <div className="order-mobile-dock" role="region" aria-label="Resumo do pedido">
+            <button
+              type="button"
+              className="order-mobile-bar-btn"
+              onClick={() => setOrderOpen(true)}
+              aria-expanded={false}
+            >
+              <span className="order-mobile-bar-title">Seu pedido</span>
+              <span className="order-mobile-bar-meta">
+                {cartCount} {cartCount === 1 ? 'item' : 'itens'} · R$ {total.toFixed(2)}
+              </span>
+            </button>
+          </div>
+        )}
+        {orderOpen && (
           <button
             type="button"
-            className="order-mobile-bar-btn"
-            onClick={() => setOrderOpen(true)}
-            aria-expanded={false}
-          >
-            <span className="order-mobile-bar-title">Seu pedido</span>
-            <span className="order-mobile-bar-meta">
-              {cartCount} {cartCount === 1 ? 'item' : 'itens'} · R$ {total.toFixed(2)}
-            </span>
-          </button>
-        </div>
-      )}
-      {orderOpen && orderPanelSheet}
-    </div>,
-    document.body,
-  )
+            className="order-drawer-backdrop"
+            aria-label="Fechar pedido"
+            onClick={() => setOrderOpen(false)}
+          />
+        )}
+        {orderOpen && orderPanelSheet}
+      </>,
+      orderMobileRoot,
+    )
 
   return (
     <>
