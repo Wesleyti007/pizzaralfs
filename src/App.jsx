@@ -358,6 +358,30 @@ function persistMenuItems(items) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(menuItemsForStorage(items)))
 }
 
+/** Atualização em background: mantém fotos já carregadas no admin. */
+function mergeMenuItemsPreservingImages(freshFromApi, currentItems, categories) {
+  const normalized = normalizeMenuItems(freshFromApi, categories)
+  if (!currentItems.length) return normalized
+
+  const byId = new Map(
+    currentItems.map((item) => [String(normalizeItemId(item.id)), item]),
+  )
+
+  return normalized.map((item) => {
+    const prev = byId.get(String(item.id))
+    if (!prev) return item
+    const image = String(item.image || '').trim() || prev.image || ''
+    return {
+      ...item,
+      image,
+      hasImage: item.hasImage === true || hasMenuItemImage(image) || hasMenuItemImage(prev),
+    }
+  })
+}
+
+const CATALOG_SYNC_MS_PUBLIC = 20000
+const CATALOG_SYNC_MS_ADMIN = 12000
+
 function loadCategories() {
   const saved = localStorage.getItem(CATEGORIES_STORAGE_KEY)
   if (!saved) return DEFAULT_CATEGORIES
@@ -415,6 +439,8 @@ function App() {
   )
   const [menuSyncMessage, setMenuSyncMessage] = useState('')
   const [deliverySettings, setDeliverySettings] = useState(() => ({ ...DEFAULT_DELIVERY_SETTINGS }))
+  const categoriesRef = useRef(categories)
+  categoriesRef.current = categories
 
   const saveTables = (items) => {
     const normalized = Array.from(new Set(items)).sort((a, b) => a - b)
@@ -422,12 +448,13 @@ function App() {
     localStorage.setItem(TABLES_STORAGE_KEY, JSON.stringify(normalized))
   }
 
-  useEffect(() => {
-    let cancelled = false
-    const menuQuery = isAuthenticated ? '?all=1&includeImages=1' : ''
-
-    const loadDataFromApi = async () => {
-      let nextCategories = categories
+  const loadDataFromApi = useCallback(
+    async ({ silent = false, adminMode = false, withImages = false } = {}) => {
+      const menuQuery = adminMode
+        ? withImages
+          ? '?all=1&includeImages=1'
+          : '?all=1'
+        : ''
 
       try {
         const [categoriesResponse, settingsResponse, menuResponse] = await Promise.all([
@@ -436,7 +463,7 @@ function App() {
           fetch(`${API_BASE_URL}/menu-items${menuQuery}`),
         ])
 
-        if (cancelled) return
+        let nextCategories = null
 
         if (categoriesResponse.ok) {
           const apiCategories = await categoriesResponse.json()
@@ -457,30 +484,75 @@ function App() {
 
         if (menuResponse.ok) {
           const items = await menuResponse.json()
-          if (Array.isArray(items) && items.length > 0) {
-            const normalizedItems = normalizeMenuItems(items, nextCategories)
-            setMenuItems(normalizedItems)
-            persistMenuItems(normalizedItems)
+          if (!Array.isArray(items)) {
+            throw new Error('Falha ao carregar produtos')
+          }
+
+          if (items.length === 0) {
+            if (!silent) {
+              setMenuSyncMessage('Nenhum produto na API. Usando cardápio local.')
+            }
+            return
+          }
+
+          const resolvedCategories = nextCategories ?? categoriesRef.current
+
+          setMenuItems((current) => {
+            const nextItems =
+              adminMode && !withImages && current.length
+                ? mergeMenuItemsPreservingImages(items, current, resolvedCategories)
+                : normalizeMenuItems(items, resolvedCategories)
+            persistMenuItems(nextItems)
+            return nextItems
+          })
+
+          if (!silent) {
             setMenuSyncMessage('')
-          } else {
-            setMenuSyncMessage('Nenhum produto na API. Usando cardápio local.')
           }
         } else {
           throw new Error('Falha ao carregar produtos')
         }
       } catch {
-        if (!cancelled) {
+        if (!silent) {
           setMenuSyncMessage('Sem conexão com a API. Usando cardápio local.')
         }
       }
-    }
+    },
+    [],
+  )
 
-    loadDataFromApi()
+  useEffect(() => {
+    loadDataFromApi({
+      silent: false,
+      adminMode: isAuthenticated,
+      withImages: isAuthenticated,
+    })
+  }, [isAuthenticated, loadDataFromApi])
 
-    return () => {
-      cancelled = true
+  useEffect(() => {
+    const intervalMs = isAuthenticated ? CATALOG_SYNC_MS_ADMIN : CATALOG_SYNC_MS_PUBLIC
+    const timer = window.setInterval(() => {
+      loadDataFromApi({
+        silent: true,
+        adminMode: isAuthenticated,
+        withImages: false,
+      })
+    }, intervalMs)
+    return () => window.clearInterval(timer)
+  }, [isAuthenticated, loadDataFromApi])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      loadDataFromApi({
+        silent: true,
+        adminMode: isAuthenticated,
+        withImages: false,
+      })
     }
-  }, [isAuthenticated])
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [isAuthenticated, loadDataFromApi])
 
   const saveDeliverySettings = async (settingsPayload) => {
     const response = await fetch(`${API_BASE_URL}/settings`, {
