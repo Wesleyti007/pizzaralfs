@@ -66,10 +66,24 @@ export const DEFAULT_CATEGORIES = [
   { id: 'sobremesas', label: 'Sobremesas', subcategories: [] },
 ]
 
-function normalizeCategoryMinOrderQty(value) {
+export function normalizeCategoryMinOrderQty(value) {
   const parsed = Math.floor(Number(value))
   if (!Number.isFinite(parsed) || parsed < 1) return 1
   return Math.min(99, parsed)
+}
+
+/** Enquanto digita no admin (não força 1 ao apagar o campo). */
+export function parseCategoryMinOrderInput(rawValue) {
+  const digits = String(rawValue ?? '').replace(/\D/g, '')
+  if (digits === '') return ''
+  const parsed = parseInt(digits, 10)
+  if (!Number.isFinite(parsed)) return ''
+  return String(Math.min(99, Math.max(1, parsed)))
+}
+
+export function commitCategoryMinOrderInput(value) {
+  if (value === '' || value === undefined || value === null) return 1
+  return normalizeCategoryMinOrderQty(value)
 }
 
 export function slugify(text) {

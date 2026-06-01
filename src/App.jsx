@@ -109,7 +109,9 @@ import {
   hasMenuItemImage,
   isPizzaCategory,
   itemHasSizes,
+  commitCategoryMinOrderInput,
   normalizeCategories,
+  parseCategoryMinOrderInput,
   normalizeMenuItemCategories,
   normalizeMenuItemSizes,
   PIZZA_SIZE_TEMPLATES,
@@ -3261,8 +3263,23 @@ function AdminFeedbackModal({ modal, onClose }) {
   )
 }
 
+function prepareCategoriesForSave(categories) {
+  return categories.map((category) => ({
+    ...category,
+    minOrderQty: commitCategoryMinOrderInput(category.minOrderQty),
+    subcategories: (category.subcategories || []).map((sub) => ({
+      ...sub,
+      minOrderQty: commitCategoryMinOrderInput(sub.minOrderQty),
+    })),
+  }))
+}
+
+function categoryMinOrderInputValue(value) {
+  if (value === '' || value === undefined || value === null) return ''
+  return String(value)
+}
+
 function CategoriesAdmin({ categories, setCategories, saveCategories }) {
-  const formatMinOrderInput = (value) => String(normalizeMinOrderQty(value))
   const [newCategoryLabel, setNewCategoryLabel] = useState('')
   const [newSubLabelByCategory, setNewSubLabelByCategory] = useState({})
   const [isSaving, setIsSaving] = useState(false)
@@ -3293,7 +3310,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
   }
 
   const updateCategoryMinOrderQty = (categoryId, rawValue) => {
-    const minOrderQty = normalizeMinOrderQty(rawValue)
+    const minOrderQty = parseCategoryMinOrderInput(rawValue)
     setCategories(
       categories.map((category) =>
         category.id === categoryId ? { ...category, minOrderQty } : category,
@@ -3301,8 +3318,18 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     )
   }
 
+  const commitCategoryMinOrderQtyField = (categoryId) => {
+    setCategories((current) =>
+      current.map((category) =>
+        category.id === categoryId
+          ? { ...category, minOrderQty: commitCategoryMinOrderInput(category.minOrderQty) }
+          : category,
+      ),
+    )
+  }
+
   const updateSubcategoryMinOrderQty = (categoryId, subId, rawValue) => {
-    const minOrderQty = normalizeMinOrderQty(rawValue)
+    const minOrderQty = parseCategoryMinOrderInput(rawValue)
     setCategories(
       categories.map((category) => {
         if (category.id !== categoryId) return category
@@ -3359,7 +3386,10 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       id = `${id}-${Date.now()}`
     }
 
-    setCategories([...categories, { id, label, subcategories: [], minOrderQty: 1 }])
+    setCategories([
+      ...categories,
+      { id, label, subcategories: [], minOrderQty: 1 },
+    ])
     setNewCategoryLabel('')
     setOpenCategoryId(id)
     showModal({
@@ -3439,6 +3469,22 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     )
   }
 
+  const commitSubcategoryMinOrderQtyField = (categoryId, subId) => {
+    setCategories((current) =>
+      current.map((category) => {
+        if (category.id !== categoryId) return category
+        return {
+          ...category,
+          subcategories: category.subcategories.map((sub) =>
+            sub.id === subId
+              ? { ...sub, minOrderQty: commitCategoryMinOrderInput(sub.minOrderQty) }
+              : sub,
+          ),
+        }
+      }),
+    )
+  }
+
   const confirmRemoveSubcategory = (category, sub) => {
     showModal({
       variant: 'confirm',
@@ -3459,7 +3505,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 
   const handleSave = async () => {
     setIsSaving(true)
-    const result = await saveCategories(categories)
+    const result = await saveCategories(prepareCategoriesForSave(categories))
     setIsSaving(false)
     showModal(
       result.ok
@@ -3511,7 +3557,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
         {categories.map((category) => {
           const isOpen = openCategoryId === category.id
           const subCount = category.subcategories.length
-          const categoryMin = normalizeMinOrderQty(category.minOrderQty)
+          const categoryMin = commitCategoryMinOrderInput(category.minOrderQty)
 
           return (
             <article
@@ -3550,14 +3596,14 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                     <label className="admin-field admin-field--min-qty">
                       <span className="admin-field-label">Pedido mínimo</span>
                       <input
-                        type="number"
-                        min={1}
-                        max={99}
-                        step={1}
-                        value={formatMinOrderInput(category.minOrderQty)}
+                        type="text"
+                        inputMode="numeric"
+                        value={categoryMinOrderInputValue(category.minOrderQty)}
                         onChange={(event) =>
                           updateCategoryMinOrderQty(category.id, event.target.value)
                         }
+                        onBlur={() => commitCategoryMinOrderQtyField(category.id)}
+                        placeholder="1"
                         aria-label={`Pedido mínimo da categoria ${category.label}`}
                       />
                     </label>
@@ -3617,11 +3663,9 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                               <label className="admin-field admin-field--min-qty">
                                 <span className="admin-field-label">Pedido mínimo</span>
                                 <input
-                                  type="number"
-                                  min={1}
-                                  max={99}
-                                  step={1}
-                                  value={formatMinOrderInput(sub.minOrderQty)}
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={categoryMinOrderInputValue(sub.minOrderQty)}
                                   onChange={(event) =>
                                     updateSubcategoryMinOrderQty(
                                       category.id,
@@ -3629,6 +3673,10 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                                       event.target.value,
                                     )
                                   }
+                                  onBlur={() =>
+                                    commitSubcategoryMinOrderQtyField(category.id, sub.id)
+                                  }
+                                  placeholder="1"
                                   aria-label={`Pedido mínimo da subcategoria ${sub.label}`}
                                 />
                               </label>
