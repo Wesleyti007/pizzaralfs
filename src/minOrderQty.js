@@ -1,5 +1,3 @@
-import { cartLineKey } from './catalog.js'
-
 export function normalizeMinOrderQty(value) {
   const parsed = Math.floor(Number(value))
   if (!Number.isFinite(parsed) || parsed < 1) return 1
@@ -26,7 +24,6 @@ export function validateCartMinOrderQty(cart) {
       return {
         ok: false,
         message: `"${line.name}" exige no mínimo ${min} unidades (você tem ${qty}).`,
-        lineKey: cartLineKey(line),
       }
     }
   }
