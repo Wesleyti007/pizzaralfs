@@ -132,6 +132,36 @@ main {
   box-sizing: border-box;
 }
 
+.site-developer-credit {
+  flex-shrink: 0;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  border-top: 1px solid rgba(212, 168, 75, 0.25);
+  background: rgba(28, 22, 20, 0.92);
+}
+
+.site-developer-credit p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(245, 230, 211, 0.65);
+  letter-spacing: 0.02em;
+}
+
+.site-developer-credit__copy {
+  margin-bottom: 4px;
+}
+
+.site-developer-credit a {
+  color: var(--brand-gold-light);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.site-developer-credit a:hover {
+  color: var(--brand-cream);
+}
+
 /* ---- Home cliente ---- */
 .home-page {
   position: relative;

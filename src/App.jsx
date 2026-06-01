@@ -138,6 +138,8 @@ const HOME_SPLASH_MS = 4000
 const HOME_SPLASH_FADE_MS = 400
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 const LOGO_URL = '/logo-ralfs-web.png'
+const DEVELOPER_LINKEDIN_URL =
+  'https://www.linkedin.com/in/wesley-santos-515b73152/'
 
 const CatalogSplashContext = createContext('hidden')
 
@@ -796,10 +798,31 @@ function App() {
             <Route path="*" element={<UnknownRoutePage />} />
           </Routes>
         </main>
+        <DeveloperCredit />
       </div>
       </CatalogReceiptProvider>
       </CatalogSplashProvider>
     </BrowserRouter>
+  )
+}
+
+function DeveloperCredit() {
+  const year = new Date().getFullYear()
+
+  return (
+    <footer className="site-developer-credit">
+      <p className="site-developer-credit__copy">Copyright © {year}</p>
+      <p>
+        Desenvolvido por{' '}
+        <a
+          href={DEVELOPER_LINKEDIN_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Wesley Santos
+        </a>
+      </p>
+    </footer>
   )
 }
 

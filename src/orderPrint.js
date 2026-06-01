@@ -28,7 +28,7 @@ function buildItemLinesHtml(items) {
       const unit = Number(item.unitPrice ?? item.price ?? 0)
       const name = item.itemName ?? item.name ?? 'Item'
       const size = item.sizeLabel ? ` (${item.sizeLabel})` : ''
-      return `<div class="print-item">
+      return `<div class="print-block print-item">
         <span class="print-item-name">${qty}x ${escapeHtml(name)}${escapeHtml(size)}</span>
         <span class="print-item-price">${formatOrderMoney(unit * qty)}</span>
       </div>`
@@ -41,7 +41,7 @@ function buildDeliveryBlockHtml(order, { canhoto = false } = {}) {
   const title = canhoto ? 'CANHOTO — DADOS ENTREGA' : 'DELIVERY — ENTREGA'
 
   return `
-    <div class="print-delivery-box${canhoto ? ' print-delivery-box--canhoto' : ''}">
+    <div class="print-block print-delivery-box${canhoto ? ' print-delivery-box--canhoto' : ''}">
       <p class="print-line print-dest-tag">${escapeHtml(title)}</p>
       <p class="print-line print-delivery-field"><span class="print-lbl">Nome:</span> ${escapeHtml(order.customerName || '')}</p>
       <p class="print-line print-delivery-field"><span class="print-lbl">WhatsApp:</span> ${escapeHtml(phone)}</p>
@@ -67,7 +67,7 @@ function buildDestinationHtml(order) {
   }
 
   const mesa = order.tableNumber ? `Mesa ${order.tableNumber}` : 'Mesa nao identificada'
-  return `<p class="print-line print-mesa">${escapeHtml(mesa)}</p>`
+  return `<div class="print-block print-block--mesa"><p class="print-line print-mesa">${escapeHtml(mesa)}</p></div>`
 }
 
 function buildTotalsHtml(order) {
@@ -79,36 +79,58 @@ function buildTotalsHtml(order) {
       sub > 0
         ? `<p class="print-line">Subtotal: ${formatOrderMoney(sub)}</p>`
         : ''
-    return `${subtotalLine}
+    return `<div class="print-block print-block--totals">${subtotalLine}
       <p class="print-line">Taxa entrega: ${formatOrderMoney(fee)}</p>
-      <p class="print-total">TOTAL: ${formatOrderMoney(total)}</p>`
+      <p class="print-total">TOTAL: ${formatOrderMoney(total)}</p></div>`
   }
-  return `<p class="print-total">TOTAL: ${formatOrderMoney(total)}</p>`
+  return `<div class="print-block print-block--totals"><p class="print-total">TOTAL: ${formatOrderMoney(total)}</p></div>`
 }
 
 function buildViaHtml(order, items, viaNumber) {
-  const isDelivery = isDeliveryOrder(order.tableNumber ?? order.mesa, order.orderType)
-  const isCanhoto = viaNumber === 2
-  const viaLabel = isDelivery && isCanhoto ? '2a VIA — CANHOTO' : `${viaNumber}a VIA`
-
-  const deliveryTop =
-    isDelivery && isCanhoto ? buildDeliveryBlockHtml(order, { canhoto: true }) : ''
-  const destination = !isCanhoto ? buildDestinationHtml(order) : ''
+  const viaLabel = `${viaNumber}a VIA`
 
   return `
-    <section class="order-print-via${isCanhoto ? ' order-print-via--canhoto' : ''}">
-      <p class="print-center print-brand">PIZZA RALF'S</p>
-      <p class="print-center print-via-tag">${escapeHtml(viaLabel)}</p>
-      <p class="print-line">Pedido #${order.id}</p>
-      <p class="print-line">${escapeHtml(formatOrderDateTime(order.createdAt))}</p>
-      ${deliveryTop}
-      ${destination}
+    <section class="order-print-via">
+      <div class="print-block print-block--header">
+        <p class="print-center print-brand">PIZZA RALF'S</p>
+        <p class="print-center print-via-tag">${escapeHtml(viaLabel)}</p>
+        <p class="print-line">Pedido #${order.id}</p>
+        <p class="print-line">${escapeHtml(formatOrderDateTime(order.createdAt))}</p>
+      </div>
+      ${buildDestinationHtml(order)}
       <p class="print-divider">--------------------------------</p>
-      <div class="print-items">${buildItemLinesHtml(items)}</div>
+      <div class="print-block print-block--items">
+        <div class="print-items">${buildItemLinesHtml(items)}</div>
+      </div>
       <p class="print-divider">--------------------------------</p>
       ${buildTotalsHtml(order)}
-      <p class="print-obs">Obs: ${escapeHtml(order.observation || 'Sem observacoes')}</p>
-      ${isDelivery && isCanhoto ? buildDeliveryBlockHtml(order, { canhoto: true }) : ''}
+      <div class="print-block print-block--obs">
+        <p class="print-obs">Obs: ${escapeHtml(order.observation || 'Sem observacoes')}</p>
+      </div>
+    </section>
+  `
+}
+
+/** 3ª folha no delivery: canhoto com dados de entrega para o entregador. */
+function buildCanhotoEntregaHtml(order, items) {
+  return `
+    <section class="order-print-via order-print-via--canhoto">
+      <div class="print-block print-block--header">
+        <p class="print-center print-brand">PIZZA RALF'S</p>
+        <p class="print-center print-via-tag">CANHOTO — ENTREGA</p>
+        <p class="print-line">Pedido #${order.id}</p>
+        <p class="print-line">${escapeHtml(formatOrderDateTime(order.createdAt))}</p>
+      </div>
+      ${buildDeliveryBlockHtml(order, { canhoto: true })}
+      <p class="print-divider">--------------------------------</p>
+      <div class="print-block print-block--items">
+        <div class="print-items">${buildItemLinesHtml(items)}</div>
+      </div>
+      <p class="print-divider">--------------------------------</p>
+      ${buildTotalsHtml(order)}
+      <div class="print-block print-block--obs">
+        <p class="print-obs">Obs: ${escapeHtml(order.observation || 'Sem observacoes')}</p>
+      </div>
     </section>
   `
 }
@@ -144,7 +166,24 @@ function thermalPrintStyles() {
       padding: 3mm 2mm;
       margin-top: 2mm;
     }
+    .print-block {
+      break-inside: avoid;
+      page-break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    .print-block--header,
+    .print-block--mesa,
+    .print-block--totals,
+    .print-block--obs,
+    .print-delivery-box {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
     .order-print-cut {
+      break-before: page;
+      page-break-before: always;
+      break-after: page;
+      page-break-after: always;
       margin: 6mm 0;
       padding: 3mm 0;
       text-align: center;
@@ -165,7 +204,12 @@ function thermalPrintStyles() {
       font-weight: 700;
       margin-bottom: 6px;
     }
-    .print-line { margin-bottom: 3px; font-size: 12px; }
+    .print-line {
+      margin-bottom: 3px;
+      font-size: 12px;
+      orphans: 2;
+      widows: 2;
+    }
     .print-mesa { font-size: 13px; font-weight: 700; }
     .print-dest-tag {
       font-size: 12px;
@@ -208,6 +252,8 @@ function thermalPrintStyles() {
       gap: 4px;
       margin-bottom: 5px;
       font-size: 12px;
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .print-item-name {
       flex: 1;
@@ -242,13 +288,40 @@ function thermalPrintStyles() {
       .order-print-sheet {
         width: ${w}mm;
       }
+      .print-block,
+      .print-item,
+      .print-delivery-box,
+      .print-block--items {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .order-print-cut,
+      .order-print-via--canhoto {
+        break-before: page;
+        page-break-before: always;
+      }
+      .order-print-via {
+        break-inside: auto;
+        page-break-inside: auto;
+      }
     }
   `
 }
 
 export function buildOrderPrintHtml(order, items) {
   const isDelivery = isDeliveryOrder(order.tableNumber ?? order.mesa, order.orderType)
-  const cutLabel = isDelivery ? '--- CANHOTO (2a VIA) ---' : '--- 2a VIA ---'
+
+  const segundaVia = `
+    <div class="order-print-cut">--- 2a VIA ---</div>
+    ${buildViaHtml(order, items, 2)}
+  `
+
+  const canhotoEntrega = isDelivery
+    ? `
+    <div class="order-print-cut">--- CANHOTO ENTREGA ---</div>
+    ${buildCanhotoEntregaHtml(order, items)}
+  `
+    : ''
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -261,8 +334,8 @@ export function buildOrderPrintHtml(order, items) {
 <body>
   <div class="order-print-sheet">
     ${buildViaHtml(order, items, 1)}
-    <div class="order-print-cut">${cutLabel}</div>
-    ${buildViaHtml(order, items, 2)}
+    ${segundaVia}
+    ${canhotoEntrega}
     <p class="print-divider" style="margin-top:8mm">.</p>
   </div>
 </body>
