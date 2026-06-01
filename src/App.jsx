@@ -1055,9 +1055,6 @@ function OrderPanel({
               {item.sizeLabel && getCartFlavorIds(item).length <= 1 && (
                 <span className="basket-item-size">{item.sizeLabel}</span>
               )}
-              {getMinOrderQty(item) > 1 && (
-                <span className="basket-item-min-qty">Mín. {getMinOrderQty(item)} un.</span>
-              )}
               <span>{formatBRL(item.price * item.qty)}</span>
             </div>
             <div className="qty">
@@ -1296,6 +1293,7 @@ function MenuItemCard({
   menuItem,
   onAddToCart,
   pizzaItems = [],
+  menuItems = [],
   categories = [],
   forDelivery = false,
   imagePriority = false,
@@ -1474,14 +1472,12 @@ function MenuItemCard({
         </strong>
       )}
 
-      {formatMinOrderHint(menuItem) && (
-        <p className="card-min-order-hint">{formatMinOrderHint(menuItem)}</p>
+      {formatMinOrderHint(menuItem, menuItems, categories) && (
+        <p className="card-min-order-hint">{formatMinOrderHint(menuItem, menuItems, categories)}</p>
       )}
 
       <button type="button" className="btn-add" onClick={handleAdd} disabled={addDisabled}>
-        {getMinOrderQty(menuItem) > 1
-          ? `Adicionar ${getMinOrderQty(menuItem)} un.`
-          : 'Adicionar'}
+        Adicionar
       </button>
     </article>
   )
@@ -1539,7 +1535,6 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
   )
 
   const addToCart = (cartItem) => {
-    const minQty = getMinOrderQty(cartItem)
     setCart((current) => {
       const existing = current.find((item) => sameCartLine(item, cartItem))
       if (existing) {
@@ -1548,7 +1543,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
         )
       }
 
-      return [...current, { ...cartItem, qty: minQty }]
+      return [...current, { ...cartItem, qty: 1 }]
     })
   }
 
@@ -1557,12 +1552,8 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
       current
         .map((item) => {
           if (cartLineKey(item) !== lineKey) return item
-          const minQty = getMinOrderQty(item)
           const nextQty = item.qty + delta
           if (nextQty <= 0) return { ...item, qty: 0 }
-          if (nextQty < minQty) {
-            return delta < 0 ? { ...item, qty: 0 } : { ...item, qty: minQty }
-          }
           return { ...item, qty: nextQty }
         })
         .filter((item) => item.qty > 0),
@@ -1585,7 +1576,10 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     () => (isDelivery ? validateDeliveryInfo(deliveryInfo, { orderTotal: total }) : { ok: true }),
     [isDelivery, deliveryInfo, total],
   )
-  const cartMinOrderValidation = useMemo(() => validateCartMinOrderQty(cart), [cart])
+  const cartMinOrderValidation = useMemo(
+    () => validateCartMinOrderQty(cart, menuItems, categories),
+    [cart, menuItems, categories],
+  )
   const canFinalize =
     cartMinOrderValidation.ok && (!isDelivery || deliveryValidation.ok)
   const cartMinOrderMessage = cartMinOrderValidation.ok ? '' : cartMinOrderValidation.message
@@ -1650,7 +1644,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
   const finalizeOrder = async () => {
     if (cart.length === 0 || isSubmittingOrder) return
 
-    const minCheck = validateCartMinOrderQty(cart)
+    const minCheck = validateCartMinOrderQty(cart, menuItems, categories)
     if (!minCheck.ok) {
       setOrderMessage(minCheck.message)
       return
@@ -1966,6 +1960,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
               pizzaItems={
                 isCombinablePizzaItem(menuItem, categories) ? pizzaMenuItems : undefined
               }
+              menuItems={menuItems}
               categories={categories}
               forDelivery={isDelivery}
               imagePriority={index < 4}
@@ -3116,7 +3111,8 @@ function AdminItemFormFields({
           aria-label="Quantidade mínima por pedido"
         />
         <small className="field-hint">
-          Ex.: esfirras = 5. Use 1 quando não houver quantidade mínima.
+          Vale para a categoria inteira (ex.: 5 esfirras no total, sabores diferentes). Use 1 se
+          não houver mínimo.
         </small>
       </label>
       <label className="admin-active-toggle field-full">
@@ -3920,7 +3916,9 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
         </dl>
         <p className="admin-item-description">{item.description}</p>
         {getMinOrderQty(item) > 1 && (
-          <p className="admin-item-min-order">Pedido mínimo: {getMinOrderQty(item)} un.</p>
+          <p className="admin-item-min-order">
+            Mín. {getMinOrderQty(item)} un. na categoria (soma todos os sabores)
+          </p>
         )}
         <AdminItemPricing item={item} />
       </div>

@@ -459,32 +459,45 @@ function validateDeliveryFields({
 }
 
 async function validateOrderItemsMinQty(items) {
-  const ids = [
+  const categories = [
     ...new Set(
       items
-        .map((item) => Number(item.id))
-        .filter((id) => Number.isInteger(id) && id > 0),
+        .map((line) => String(line.category || '').trim())
+        .filter(Boolean),
     ),
   ]
-  if (!ids.length) return { ok: true }
+  if (!categories.length) return { ok: true }
 
   const result = await query(
-    `SELECT id, name, min_order_qty FROM menu_items WHERE id = ANY($1::bigint[])`,
-    [ids],
+    `SELECT category, MAX(min_order_qty)::int AS min_qty
+     FROM menu_items
+     WHERE category = ANY($1)
+     GROUP BY category
+     HAVING MAX(min_order_qty) > 1`,
+    [categories],
   )
-  const byId = new Map(result.rows.map((row) => [Number(row.id), row]))
 
+  const requiredByCategory = new Map(
+    result.rows.map((row) => [row.category, normalizeMinOrderQty(row.min_qty)]),
+  )
+
+  const qtyByCategory = new Map()
   for (const line of items) {
-    const itemId = Number(line.id)
-    if (!Number.isInteger(itemId) || itemId <= 0) continue
-    const row = byId.get(itemId)
-    const min = normalizeMinOrderQty(row?.min_order_qty)
-    const qty = Math.floor(Number(line.qty) || 0)
-    const name = String(line.name || row?.name || 'Item').trim()
-    if (qty < min) {
+    const category = String(line.category || '').trim()
+    if (!category) continue
+    qtyByCategory.set(
+      category,
+      (qtyByCategory.get(category) || 0) + Math.floor(Number(line.qty) || 0),
+    )
+  }
+
+  for (const [category, required] of requiredByCategory) {
+    const total = qtyByCategory.get(category) || 0
+    if (total < required) {
+      const missing = required - total
       return {
         ok: false,
-        message: `"${name}" exige no minimo ${min} unidades (pedido com ${qty}).`,
+        message: `${category}: minimo ${required} unidades no pedido (sabores diferentes). Voce tem ${total}; faltam ${missing}.`,
       }
     }
   }
