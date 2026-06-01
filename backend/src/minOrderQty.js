@@ -1,4 +1,4 @@
-import { findCategory, getCategoryLabel, getSubcategoryLabel } from './catalog.js'
+import { findCategory, loadCategoriesFromDb, normalizeCategories } from './categories.js'
 
 export function normalizeMinOrderQty(value) {
   const parsed = Math.floor(Number(value))
@@ -6,10 +6,9 @@ export function normalizeMinOrderQty(value) {
   return Math.min(99, parsed)
 }
 
-/** Chave do grupo: categoria ou categoria:subcategoria (quando sub tem mínimo). */
 export function getMinOrderGroupKey(line, categories) {
   const categoryId = String(line?.category || '').trim()
-  if (!categoryId || !Array.isArray(categories)) return null
+  if (!categoryId) return null
 
   const category = findCategory(categories, categoryId)
   if (!category) return null
@@ -30,7 +29,7 @@ export function getMinOrderGroupKey(line, categories) {
 }
 
 export function getMinOrderRequirementForGroup(groupKey, categories) {
-  if (!groupKey || !Array.isArray(categories)) return 1
+  if (!groupKey) return 1
 
   if (groupKey.includes(':')) {
     const [categoryId, subcategoryId] = groupKey.split(':')
@@ -42,49 +41,28 @@ export function getMinOrderRequirementForGroup(groupKey, categories) {
   return normalizeMinOrderQty(findCategory(categories, groupKey)?.minOrderQty)
 }
 
-export function getMinOrderGroupLabel(groupKey, categories) {
-  if (!groupKey) return 'itens'
-  if (groupKey.includes(':')) {
-    const [categoryId, subcategoryId] = groupKey.split(':')
-    return getSubcategoryLabel(categories, categoryId, subcategoryId)
-  }
-  return getCategoryLabel(categories, groupKey)
-}
+export async function validateOrderItemsMinQty(query, items) {
+  if (!Array.isArray(items) || !items.length) return { ok: true }
 
-export function formatMinOrderHint(menuItem, categories) {
-  const groupKey = getMinOrderGroupKey(menuItem, categories)
-  if (!groupKey) return null
-
-  const required = getMinOrderRequirementForGroup(groupKey, categories)
-  if (required <= 1) return null
-
-  const label = getMinOrderGroupLabel(groupKey, categories)
-  return `Mínimo ${required} ${label.toLowerCase()} no pedido (podem ser sabores diferentes)`
-}
-
-export function validateCartMinOrderQty(cart, categories = []) {
-  if (!Array.isArray(cart) || !cart.length || !Array.isArray(categories)) {
-    return { ok: true }
-  }
+  const categories = await loadCategoriesFromDb(query)
+  const normalized = normalizeCategories(categories)
 
   const qtyByGroup = new Map()
-  for (const line of cart) {
-    const groupKey = getMinOrderGroupKey(line, categories)
+  for (const line of items) {
+    const groupKey = getMinOrderGroupKey(line, normalized)
     if (!groupKey) continue
     const qty = Math.floor(Number(line.qty) || 0)
     qtyByGroup.set(groupKey, (qtyByGroup.get(groupKey) || 0) + qty)
   }
 
   for (const [groupKey, total] of qtyByGroup) {
-    const required = getMinOrderRequirementForGroup(groupKey, categories)
+    const required = getMinOrderRequirementForGroup(groupKey, normalized)
     if (required <= 1 || total >= required) continue
 
-    const label = getMinOrderGroupLabel(groupKey, categories)
     const missing = required - total
     return {
       ok: false,
-      message: `${label}: mínimo ${required} unidades no pedido (sabores diferentes). Você tem ${total}; faltam ${missing}.`,
-      groupKey,
+      message: `${groupKey}: minimo ${required} unidades no pedido (sabores diferentes). Voce tem ${total}; faltam ${missing}.`,
     }
   }
 

@@ -107,6 +107,7 @@ export function PizzaSlicePicker({
   const maxFlavors = getMaxFlavorsForSize(sizeId)
   const canAddMore = selectedFlavors.length < maxFlavors && otherPizzaOptions.length > 0
   const showMulti = maxFlavors > 1
+  const showAnimatedPizza = sizeId === 'media' || sizeId === 'grande'
 
   const sliceOwners = useMemo(
     () => distributeFlavorSlices(pieceCount, selectedFlavors.length),
@@ -181,7 +182,7 @@ export function PizzaSlicePicker({
     <div className="pizza-slice-picker">
       {showMulti ? (
         <>
-          {pizzaVisual}
+          {showAnimatedPizza && pizzaVisual}
 
           <div className="pizza-flavor-chips">
             <span className="pizza-sizes-label">Sabores</span>
@@ -233,41 +234,9 @@ export function PizzaSlicePicker({
           )}
         </>
       ) : (
-        <>
-          <div
-            className="pizza-slice-visual pizza-slice-visual--broto"
-            key={`broto-${normalizeItemId(primaryFlavor.id)}`}
-            aria-hidden="true"
-          >
-            <div className="pizza-slice-plate">
-              <svg viewBox="0 0 200 200" className="pizza-slice-svg">
-                <circle cx="100" cy="100" r="94" className="pizza-slice-shadow" />
-                <circle cx="100" cy="100" r="92" className="pizza-slice-crust" />
-                <g className="pizza-slice-layer pizza-slice-layer--broto">
-                  {Array.from({ length: pieceCount }, (_, index) => (
-                    <g
-                      key={`broto-slice-${index}`}
-                      className="pizza-slice-group pizza-slice-group--filled"
-                      style={{
-                        '--slice-delay': `${index * 24}ms`,
-                        '--slice-fill': PIZZA_FLAVOR_COLORS[0],
-                      }}
-                    >
-                      <path
-                        d={slicePath(100, 100, 88, index, pieceCount)}
-                        className="pizza-slice-part"
-                      />
-                    </g>
-                  ))}
-                </g>
-                <circle cx="100" cy="100" r="14" className="pizza-slice-center" />
-              </svg>
-            </div>
-          </div>
-          <p className="pizza-half-hint pizza-half-hint--broto">
-            Broto: apenas um sabor (esta pizza inteira).
-          </p>
-        </>
+        <p className="pizza-half-hint pizza-half-hint--broto">
+          Broto: apenas um sabor (esta pizza inteira).
+        </p>
       )}
     </div>
   )

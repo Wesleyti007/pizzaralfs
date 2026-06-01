@@ -52,12 +52,7 @@ import {
   menuItemsForStorage,
   shouldShowAdminMenuPreview,
 } from './menuItemImage.js'
-import {
-  formatMinOrderHint,
-  getMinOrderQty,
-  normalizeMinOrderQty,
-  validateCartMinOrderQty,
-} from './minOrderQty.js'
+import { formatMinOrderHint, normalizeMinOrderQty, validateCartMinOrderQty } from './minOrderQty.js'
 import { downloadOrderReceiptImage } from './orderReceiptImage.js'
 import { PizzaSlicePicker } from './PizzaSlicePicker.jsx'
 import {
@@ -327,7 +322,6 @@ function buildMenuItemApiPayload(item, isActive) {
     subcategory: item.subcategory || '',
     name: item.name,
     description: item.description || '',
-    minOrderQty: getMinOrderQty(item),
     isActive: isActive !== false,
   }
 
@@ -362,7 +356,6 @@ function normalizeMenuItems(items, categories) {
       image,
       hasImage: item.hasImage === true || hasMenuItemImage(image),
       isActive: item.isActive !== false,
-      minOrderQty: normalizeMinOrderQty(item.minOrderQty),
     }
   })
 }
@@ -1082,9 +1075,6 @@ function OrderPanel({
           {isDelivery && (
             <div className="delivery-fields">
               <p className="delivery-fields-title">Entrega (delivery)</p>
-              <p className="delivery-fields-hint">
-                Taxa de entrega fixa conforme configurado no estabelecimento.
-              </p>
               <label className="observation-label" htmlFor={nameId}>
                 Nome <span className="required-mark">*</span>
               </label>
@@ -1293,7 +1283,6 @@ function MenuItemCard({
   menuItem,
   onAddToCart,
   pizzaItems = [],
-  menuItems = [],
   categories = [],
   forDelivery = false,
   imagePriority = false,
@@ -1427,6 +1416,9 @@ function MenuItemCard({
         ) : null}
       </div>
       <h3>{menuItem.name}</h3>
+      {formatMinOrderHint(menuItem, categories) && (
+        <p className="card-min-order-hint">{formatMinOrderHint(menuItem, categories)}</p>
+      )}
       <p className="card-description">({menuItem.description})</p>
 
       {hasSizes ? (
@@ -1470,10 +1462,6 @@ function MenuItemCard({
         <strong className="card-price card-price--selected">
           R$ {displayPrice.toFixed(2)}
         </strong>
-      )}
-
-      {formatMinOrderHint(menuItem, menuItems, categories) && (
-        <p className="card-min-order-hint">{formatMinOrderHint(menuItem, menuItems, categories)}</p>
       )}
 
       <button type="button" className="btn-add" onClick={handleAdd} disabled={addDisabled}>
@@ -1577,8 +1565,8 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     [isDelivery, deliveryInfo, total],
   )
   const cartMinOrderValidation = useMemo(
-    () => validateCartMinOrderQty(cart, menuItems, categories),
-    [cart, menuItems, categories],
+    () => validateCartMinOrderQty(cart, categories),
+    [cart, categories],
   )
   const canFinalize =
     cartMinOrderValidation.ok && (!isDelivery || deliveryValidation.ok)
@@ -1644,7 +1632,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
   const finalizeOrder = async () => {
     if (cart.length === 0 || isSubmittingOrder) return
 
-    const minCheck = validateCartMinOrderQty(cart, menuItems, categories)
+    const minCheck = validateCartMinOrderQty(cart, categories)
     if (!minCheck.ok) {
       setOrderMessage(minCheck.message)
       return
@@ -1960,7 +1948,6 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
               pizzaItems={
                 isCombinablePizzaItem(menuItem, categories) ? pizzaMenuItems : undefined
               }
-              menuItems={menuItems}
               categories={categories}
               forDelivery={isDelivery}
               imagePriority={index < 4}
@@ -2923,7 +2910,6 @@ const emptyItemForm = {
   deliveryPrice: '',
   sizePrices: emptySizePrices(),
   sizeDeliveryPrices: emptySizePrices(),
-  minOrderQty: '1',
   image: '',
   isActive: true,
 }
@@ -2939,7 +2925,6 @@ function buildItemFormFromMenuItem(item) {
     deliveryPrice: hasPizzaSizes ? '' : formatPriceForInput(item.deliveryPrice),
     sizePrices: buildSizePricesFromItem(item),
     sizeDeliveryPrices: buildSizePricesFromItem(item, { delivery: true }),
-    minOrderQty: String(getMinOrderQty(item)),
     image: item.image || '',
     isActive: item.isActive !== false,
   }
@@ -3098,23 +3083,6 @@ function AdminItemFormFields({
           </label>
         </div>
       )}
-      <label className="field-full">
-        <span className="field-label">Pedido mínimo (unidades)</span>
-        <input
-          name="minOrderQty"
-          type="number"
-          min={1}
-          max={99}
-          step={1}
-          value={form.minOrderQty}
-          onChange={onChange}
-          aria-label="Quantidade mínima por pedido"
-        />
-        <small className="field-hint">
-          Vale para a categoria inteira (ex.: 5 esfirras no total, sabores diferentes). Use 1 se
-          não houver mínimo.
-        </small>
-      </label>
       <label className="admin-active-toggle field-full">
         <input type="checkbox" name="isActive" checked={form.isActive !== false} onChange={onChange} />
         <span>Item ativo no cardápio</span>
@@ -3294,6 +3262,7 @@ function AdminFeedbackModal({ modal, onClose }) {
 }
 
 function CategoriesAdmin({ categories, setCategories, saveCategories }) {
+  const formatMinOrderInput = (value) => String(normalizeMinOrderQty(value))
   const [newCategoryLabel, setNewCategoryLabel] = useState('')
   const [newSubLabelByCategory, setNewSubLabelByCategory] = useState({})
   const [isSaving, setIsSaving] = useState(false)
@@ -3320,6 +3289,30 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       categories.map((category) =>
         category.id === categoryId ? { ...category, label } : category,
       ),
+    )
+  }
+
+  const updateCategoryMinOrderQty = (categoryId, rawValue) => {
+    const minOrderQty = normalizeMinOrderQty(rawValue)
+    setCategories(
+      categories.map((category) =>
+        category.id === categoryId ? { ...category, minOrderQty } : category,
+      ),
+    )
+  }
+
+  const updateSubcategoryMinOrderQty = (categoryId, subId, rawValue) => {
+    const minOrderQty = normalizeMinOrderQty(rawValue)
+    setCategories(
+      categories.map((category) => {
+        if (category.id !== categoryId) return category
+        return {
+          ...category,
+          subcategories: category.subcategories.map((sub) =>
+            sub.id === subId ? { ...sub, minOrderQty } : sub,
+          ),
+        }
+      }),
     )
   }
 
@@ -3366,7 +3359,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       id = `${id}-${Date.now()}`
     }
 
-    setCategories([...categories, { id, label, subcategories: [] }])
+    setCategories([...categories, { id, label, subcategories: [], minOrderQty: 1 }])
     setNewCategoryLabel('')
     setOpenCategoryId(id)
     showModal({
@@ -3406,7 +3399,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
         if (item.id !== categoryId) return item
         return {
           ...item,
-          subcategories: [...item.subcategories, { id: subId, label }],
+          subcategories: [...item.subcategories, { id: subId, label, minOrderQty: 1 }],
         }
       }),
     )
@@ -3488,8 +3481,9 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       <div className="categories-admin-intro">
         <h3>Categorias e subcategorias</h3>
         <p>
-          Categoria principal (ex.: Pizzas) e subcategorias (ex.: Doces, Premium). Abra a
-          categoria e clique em cada subcategoria para editar.
+          Categoria principal (ex.: Pizzas) e subcategorias (ex.: Doces, Premium). O pedido mínimo
+          vale para a categoria ou subcategoria inteira — ex.: 5 esfirras no total, sabores
+          diferentes. Use 1 quando não houver mínimo.
         </p>
       </div>
 
@@ -3517,6 +3511,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
         {categories.map((category) => {
           const isOpen = openCategoryId === category.id
           const subCount = category.subcategories.length
+          const categoryMin = normalizeMinOrderQty(category.minOrderQty)
 
           return (
             <article
@@ -3534,6 +3529,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                   <span className="category-accordion-label">{category.label}</span>
                   <span className="category-accordion-meta">
                     {subCount} {subCount === 1 ? 'subcategoria' : 'subcategorias'}
+                    {categoryMin > 1 ? ` · mín. ${categoryMin} un.` : ''}
                   </span>
                 </span>
                 <span className="category-accordion-chevron" aria-hidden="true" />
@@ -3541,18 +3537,37 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 
               <div className="category-accordion-panel">
                 <div className="category-admin-head">
-                  <label className="admin-field">
-                    <span className="admin-field-label">Nome da categoria</span>
-                    <input
-                      value={category.label}
-                      onChange={(event) =>
-                        updateCategoryLabel(category.id, event.target.value)
-                      }
-                    />
-                  </label>
+                  <div className="category-admin-fields">
+                    <label className="admin-field admin-field--name">
+                      <span className="admin-field-label">Nome da categoria</span>
+                      <input
+                        value={category.label}
+                        onChange={(event) =>
+                          updateCategoryLabel(category.id, event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="admin-field admin-field--min-qty">
+                      <span className="admin-field-label">Pedido mínimo</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={99}
+                        step={1}
+                        value={formatMinOrderInput(category.minOrderQty)}
+                        onChange={(event) =>
+                          updateCategoryMinOrderQty(category.id, event.target.value)
+                        }
+                        aria-label={`Pedido mínimo da categoria ${category.label}`}
+                      />
+                    </label>
+                  </div>
+                  <p className="category-admin-fields-hint">
+                    Pedido mínimo soma todos os itens da categoria (sabores diferentes).
+                  </p>
                   <button
                     type="button"
-                    className="admin-btn admin-btn-danger"
+                    className="admin-btn admin-btn-danger category-admin-delete"
                     onClick={() => confirmRemoveCategory(category)}
                   >
                     Excluir categoria
@@ -3588,16 +3603,39 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                             <span className="subcategory-accordion-chevron" aria-hidden="true" />
                           </button>
                           <div className="subcategory-accordion-panel">
-                            <label className="admin-field">
-                              <span className="admin-field-label">Nome da subcategoria</span>
-                              <input
-                                value={sub.label}
-                                onChange={(event) =>
-                                  updateSubcategoryLabel(category.id, sub.id, event.target.value)
-                                }
-                                aria-label={`Subcategoria ${sub.label}`}
-                              />
-                            </label>
+                            <div className="category-admin-fields">
+                              <label className="admin-field admin-field--name">
+                                <span className="admin-field-label">Nome da subcategoria</span>
+                                <input
+                                  value={sub.label}
+                                  onChange={(event) =>
+                                    updateSubcategoryLabel(category.id, sub.id, event.target.value)
+                                  }
+                                  aria-label={`Subcategoria ${sub.label}`}
+                                />
+                              </label>
+                              <label className="admin-field admin-field--min-qty">
+                                <span className="admin-field-label">Pedido mínimo</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={99}
+                                  step={1}
+                                  value={formatMinOrderInput(sub.minOrderQty)}
+                                  onChange={(event) =>
+                                    updateSubcategoryMinOrderQty(
+                                      category.id,
+                                      sub.id,
+                                      event.target.value,
+                                    )
+                                  }
+                                  aria-label={`Pedido mínimo da subcategoria ${sub.label}`}
+                                />
+                              </label>
+                            </div>
+                            <p className="category-admin-fields-hint">
+                              Mínimo da subcategoria; use 1 para seguir só o da categoria.
+                            </p>
                             <p className="category-admin-id">
                               ID: <code>{sub.id}</code>
                             </p>
@@ -3915,11 +3953,6 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
           </div>
         </dl>
         <p className="admin-item-description">{item.description}</p>
-        {getMinOrderQty(item) > 1 && (
-          <p className="admin-item-min-order">
-            Mín. {getMinOrderQty(item)} un. na categoria (soma todos os sabores)
-          </p>
-        )}
         <AdminItemPricing item={item} />
       </div>
       <div className="admin-item-actions">
@@ -4499,15 +4532,12 @@ function AdminPage({
       }
     }
 
-    const minOrderQty = normalizeMinOrderQty(form.minOrderQty)
-
     const basePayload = {
       category: form.category,
       subcategory: subcategoryOptions.length > 0 ? form.subcategory || '' : '',
       name: form.name.trim(),
       description: form.description.trim(),
       image: form.image.trim(),
-      minOrderQty,
       isActive: form.isActive !== false,
     }
 

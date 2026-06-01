@@ -14,11 +14,8 @@ import {
   resolveImageVariant,
   serveMenuItemImageFromStored,
 } from './serveMenuImage.js'
-import {
-  buildMenuItemPayload,
-  normalizeMenuItemRow,
-  normalizeMinOrderQty,
-} from './menuSizes.js'
+import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
+import { validateOrderItemsMinQty } from './minOrderQty.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes,
   min_order_qty, image_base64 AS image, is_active`
@@ -458,53 +455,6 @@ function validateDeliveryFields({
   return { ok: true, paymentMethod: payment.paymentMethod, paymentChangeFor: payment.paymentChangeFor }
 }
 
-async function validateOrderItemsMinQty(items) {
-  const categories = [
-    ...new Set(
-      items
-        .map((line) => String(line.category || '').trim())
-        .filter(Boolean),
-    ),
-  ]
-  if (!categories.length) return { ok: true }
-
-  const result = await query(
-    `SELECT category, MAX(min_order_qty)::int AS min_qty
-     FROM menu_items
-     WHERE category = ANY($1)
-     GROUP BY category
-     HAVING MAX(min_order_qty) > 1`,
-    [categories],
-  )
-
-  const requiredByCategory = new Map(
-    result.rows.map((row) => [row.category, normalizeMinOrderQty(row.min_qty)]),
-  )
-
-  const qtyByCategory = new Map()
-  for (const line of items) {
-    const category = String(line.category || '').trim()
-    if (!category) continue
-    qtyByCategory.set(
-      category,
-      (qtyByCategory.get(category) || 0) + Math.floor(Number(line.qty) || 0),
-    )
-  }
-
-  for (const [category, required] of requiredByCategory) {
-    const total = qtyByCategory.get(category) || 0
-    if (total < required) {
-      const missing = required - total
-      return {
-        ok: false,
-        message: `${category}: minimo ${required} unidades no pedido (sabores diferentes). Voce tem ${total}; faltam ${missing}.`,
-      }
-    }
-  }
-
-  return { ok: true }
-}
-
 app.post('/orders', async (req, res) => {
   const { observation, items } = req.body
   const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
@@ -517,7 +467,7 @@ app.post('/orders', async (req, res) => {
   }
 
   try {
-    const minQtyCheck = await validateOrderItemsMinQty(items)
+    const minQtyCheck = await validateOrderItemsMinQty(query, items)
     if (!minQtyCheck.ok) {
       return res.status(400).json({ message: minQtyCheck.message })
     }

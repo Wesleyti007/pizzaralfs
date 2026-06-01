@@ -1,3 +1,13 @@
+function normalizeCategoryMinOrderQty(value) {
+  const parsed = Math.floor(Number(value))
+  if (!Number.isFinite(parsed) || parsed < 1) return 1
+  return Math.min(99, parsed)
+}
+
+export function findCategory(categories, categoryId) {
+  return categories.find((category) => category.id === categoryId) || null
+}
+
 export const DEFAULT_CATEGORIES = [
   {
     id: 'pizzas',
@@ -39,11 +49,20 @@ export function normalizeCategories(raw) {
               .trim()
               .toLowerCase()
               .replace(/[^a-z0-9-]+/g, '-') || `sub-${subIndex + 1}`
-          return { id: subId, label: subLabel }
+          return {
+            id: subId,
+            label: subLabel,
+            minOrderQty: normalizeCategoryMinOrderQty(sub?.minOrderQty),
+          }
         })
         .filter(Boolean)
 
-      return { id, label, subcategories }
+      return {
+        id,
+        label,
+        subcategories,
+        minOrderQty: normalizeCategoryMinOrderQty(category?.minOrderQty),
+      }
     })
     .filter(Boolean)
 
