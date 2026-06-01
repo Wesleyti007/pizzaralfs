@@ -14,6 +14,23 @@ export function menuItemHasImage(item) {
  * URL da imagem do produto.
  * @param {'card'|'full'} variant — card = miniatura leve no cardápio; full = admin/preview
  */
+/** Pré-visualização no admin (upload local ou foto já salva na API). */
+export function adminMenuPreviewSrc(image, item) {
+  const inline = String(image ?? '').trim()
+  if (/^https?:\/\//i.test(inline)) return inline
+  if (inline.startsWith('data:image/')) return inline
+  if (item && menuItemHasImage(item)) {
+    return menuItemImageSrc(item, { variant: 'card' })
+  }
+  return null
+}
+
+export function shouldShowAdminMenuPreview(image, item) {
+  const inline = String(image ?? '').trim()
+  if (inline.length > 32) return true
+  return Boolean(item && menuItemHasImage(item))
+}
+
 export function menuItemImageSrc(item, options = {}) {
   if (!item || !menuItemHasImage(item)) return null
 

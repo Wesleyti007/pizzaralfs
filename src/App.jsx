@@ -46,7 +46,12 @@ import { printOrderDocument } from './orderPrint.js'
 import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
 import { CatalogCardImage } from './CatalogCardImage.jsx'
-import { menuItemImageSrc, menuItemsForStorage } from './menuItemImage.js'
+import {
+  adminMenuPreviewSrc,
+  menuItemImageSrc,
+  menuItemsForStorage,
+  shouldShowAdminMenuPreview,
+} from './menuItemImage.js'
 import { downloadOrderReceiptImage } from './orderReceiptImage.js'
 import { PizzaSlicePicker } from './PizzaSlicePicker.jsx'
 import {
@@ -2882,6 +2887,20 @@ function buildItemFormFromMenuItem(item) {
   }
 }
 
+function AdminMenuCardPreview({ image, item, className = '' }) {
+  const src = adminMenuPreviewSrc(image, item)
+  if (!src) return null
+
+  return (
+    <div className={`image-preview${className ? ` ${className}` : ''}`}>
+      <p>Pré-visualização (como no cardápio)</p>
+      <div className="card-media menu-image-preview card-media--has-image">
+        <img src={src} alt="" className="card-media-img" decoding="async" />
+      </div>
+    </div>
+  )
+}
+
 function AdminItemFormFields({
   form,
   categories,
@@ -3032,6 +3051,7 @@ function AdminItemFormFields({
 function AdminEditItemModal({
   editingId,
   form,
+  previewItem,
   categories,
   subcategoryOptions,
   isSaving,
@@ -3096,16 +3116,12 @@ function AdminEditItemModal({
             onDeliveryPriceChange={onDeliveryPriceChange}
             onImageUpload={onImageUpload}
           />
-          {form.image && (
-            <div className="image-preview image-preview--modal field-full">
-              <p>Pré-visualização (como no cardápio)</p>
-              <div
-                className="card-media menu-image-preview card-media--has-image"
-                style={{ '--card-image': `url(${JSON.stringify(form.image)})` }}
-                role="img"
-                aria-label="Preview do item"
-              />
-            </div>
+          {shouldShowAdminMenuPreview(form.image, previewItem) && (
+            <AdminMenuCardPreview
+              image={form.image}
+              item={previewItem}
+              className="image-preview--modal field-full"
+            />
           )}
           <div className="admin-form-actions">
             <button type="submit" className="admin-btn admin-btn-primary" disabled={isSaving}>
@@ -4183,6 +4199,11 @@ function AdminPage({
   const [itemSubcategoryFilter, setItemSubcategoryFilter] = useState('all')
   const closeItemModal = () => setItemModal(null)
 
+  const editingMenuItem = useMemo(() => {
+    if (editingId == null) return null
+    return menuItems.find((item) => normalizeItemId(item.id) === editingId) ?? null
+  }, [menuItems, editingId])
+
   const subcategoryFilterOptions = useMemo(() => {
     if (itemCategoryFilter === 'all') return []
     const category = categories.find((entry) => entry.id === itemCategoryFilter)
@@ -4665,16 +4686,8 @@ function AdminPage({
               </div>
             </form>
 
-            {newItemForm.image && (
-              <div className="image-preview">
-                <p>Pré-visualização (como no cardápio)</p>
-                <div
-                  className="card-media menu-image-preview card-media--has-image"
-                  style={{ '--card-image': `url(${JSON.stringify(newItemForm.image)})` }}
-                  role="img"
-                  aria-label="Preview do item"
-                />
-              </div>
+            {shouldShowAdminMenuPreview(newItemForm.image, null) && (
+              <AdminMenuCardPreview image={newItemForm.image} />
             )}
           </div>
         )}
@@ -4733,6 +4746,7 @@ function AdminPage({
       <AdminEditItemModal
         editingId={editingId}
         form={editForm}
+        previewItem={editingMenuItem}
         categories={categories}
         subcategoryOptions={editSubcategoryOptions}
         isSaving={isSavingEditItem}
