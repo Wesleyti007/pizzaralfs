@@ -18,6 +18,8 @@ dist-ssr
 !.env.example
 backend/.env
 deploy/.env
+deploy/backups/
+deploy/pgdata/
 
 # Editor directories and files
 .vscode/*

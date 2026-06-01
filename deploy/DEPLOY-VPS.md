@@ -266,16 +266,20 @@ docker compose exec -T db pg_dump -U pizzaralfs pizzaralfs > backup-$(date +%Y%m
 
 ---
 
-## Firewall (recomendado)
+## Segurança no VPS (Contabo — recomendado)
 
-No VPS:
+Se o servidor ainda está **no padrão** (root + senha, sem firewall), use o guia completo:
+
+**`deploy/SEGURANCA-VPS.md`**
+
+Resumo rápido no VPS:
 
 ```bash
-ufw allow OpenSSH
-ufw allow 80
-ufw allow 443
-ufw enable
+bash /opt/pizza-ralfs/deploy/seguranca-vps.sh   # UFW + fail2ban + updates
+bash /opt/pizza-ralfs/deploy/backup-banco.sh    # backup do Postgres
 ```
+
+Depois: chave SSH, senhas fortes no `.env`, firewall no painel Contabo (portas 22, 80, 443).
 
 ---
 
@@ -308,6 +312,8 @@ ufw enable
 
 ## Seguranca (faca depois que funcionar)
 
-1. Trocar senha do admin no codigo ou adicionar auth real na API.
-2. Backup do banco: `docker compose exec db pg_dump -U pizzaralfs pizzaralfs > backup.sql`
-3. Nao compartilhe o arquivo `deploy/.env` (tem senha do banco).
+Ver **`deploy/SEGURANCA-VPS.md`** e rode `seguranca-vps.sh` + `backup-banco.sh`.
+
+1. Senhas fortes em `deploy/.env` (`DB_PASSWORD`, `ADMIN_PASSWORD`) + `npm run deploy`.
+2. Nao compartilhe o arquivo `deploy/.env` (tem senha do banco).
+3. Futuro: autenticacao na API (hoje o painel tem senha, rotas `/orders` sao abertas na rede).

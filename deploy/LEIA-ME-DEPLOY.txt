@@ -90,3 +90,15 @@ RESUMO DA ORDEM
   6. Testar /health e /admin/ralfs
 
 ================================================================================
+SEGURANCA VPS (Contabo — faca 1x se ainda nao fez)
+================================================================================
+
+  Guia completo: deploy/SEGURANCA-VPS.md
+
+  No VPS:
+  bash /opt/pizza-ralfs/deploy/seguranca-vps.sh
+  bash /opt/pizza-ralfs/deploy/backup-banco.sh
+
+  Depois: chave SSH, senhas fortes no .env, firewall no painel Contabo.
+
+================================================================================

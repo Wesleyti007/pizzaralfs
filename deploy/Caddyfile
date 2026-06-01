@@ -5,6 +5,13 @@
 pizzaralfs.com.br {
 	encode gzip zstd
 
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
 	# Rotas antigas do admin → única URL do painel
 	redir /admin /admin/ralfs 301
 	redir /admin/ /admin/ralfs 301
