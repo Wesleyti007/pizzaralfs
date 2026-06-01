@@ -12,6 +12,7 @@
     "db:migrate:pricing": "psql -U postgres -d pizzaralfs -f sql/migrate_delivery_pricing.sql",
     "db:migrate:km-cep": "psql -U postgres -d pizzaralfs -f sql/migrate_delivery_km_cep.sql",
     "db:migrate:active": "psql -U postgres -d pizzaralfs -f sql/migrate_menu_item_active.sql",
+    "db:migrate:min-order": "psql -U postgres -d pizzaralfs -f sql/migrate_menu_min_order_qty.sql",
     "db:seed": "psql -U postgres -d pizzaralfs -f sql/seed.sql"
   },
   "keywords": [],

@@ -14,10 +14,14 @@ import {
   resolveImageVariant,
   serveMenuItemImageFromStored,
 } from './serveMenuImage.js'
-import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
+import {
+  buildMenuItemPayload,
+  normalizeMenuItemRow,
+  normalizeMinOrderQty,
+} from './menuSizes.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes,
-  image_base64 AS image, is_active`
+  min_order_qty, image_base64 AS image, is_active`
 
 const imageUpload = multer({
   storage: multer.memoryStorage(),
@@ -189,9 +193,6 @@ app.get('/menu-items/:id/image', async (req, res) => {
     if (!served) {
       return res.status(404).end()
     }
-    if (served.redirect) {
-      return res.redirect(302, served.redirect)
-    }
 
     if (req.headers['if-none-match'] === served.etag) {
       return res.status(304).end()
@@ -217,8 +218,8 @@ app.post('/menu-items', async (req, res) => {
 
   try {
     const result = await query(
-      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, image_base64, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, min_order_qty, image_base64, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${MENU_ITEM_COLUMNS}`,
       [
         payload.category,
@@ -228,6 +229,7 @@ app.post('/menu-items', async (req, res) => {
         payload.price,
         payload.deliveryPrice,
         JSON.stringify(payload.sizes),
+        payload.minOrderQty,
         payload.image,
         payload.isActive !== false,
       ],
@@ -264,6 +266,7 @@ app.put('/menu-items/:id', async (req, res) => {
       payload.price,
       payload.deliveryPrice,
       JSON.stringify(payload.sizes),
+      payload.minOrderQty,
     ]
 
     const result = built.keepExistingImage
@@ -276,7 +279,8 @@ app.put('/menu-items/:id', async (req, res) => {
                price = $6,
                delivery_price = $7,
                sizes = $8,
-               is_active = $9
+               min_order_qty = $9,
+               is_active = $10
            WHERE id = $1
            RETURNING ${MENU_ITEM_COLUMNS}`,
           [...baseParams, payload.isActive !== false],
@@ -290,8 +294,9 @@ app.put('/menu-items/:id', async (req, res) => {
                price = $6,
                delivery_price = $7,
                sizes = $8,
-               image_base64 = $9,
-               is_active = $10
+               min_order_qty = $9,
+               image_base64 = $10,
+               is_active = $11
            WHERE id = $1
            RETURNING ${MENU_ITEM_COLUMNS}`,
           [...baseParams, payload.image, payload.isActive !== false],
@@ -453,6 +458,40 @@ function validateDeliveryFields({
   return { ok: true, paymentMethod: payment.paymentMethod, paymentChangeFor: payment.paymentChangeFor }
 }
 
+async function validateOrderItemsMinQty(items) {
+  const ids = [
+    ...new Set(
+      items
+        .map((item) => Number(item.id))
+        .filter((id) => Number.isInteger(id) && id > 0),
+    ),
+  ]
+  if (!ids.length) return { ok: true }
+
+  const result = await query(
+    `SELECT id, name, min_order_qty FROM menu_items WHERE id = ANY($1::bigint[])`,
+    [ids],
+  )
+  const byId = new Map(result.rows.map((row) => [Number(row.id), row]))
+
+  for (const line of items) {
+    const itemId = Number(line.id)
+    if (!Number.isInteger(itemId) || itemId <= 0) continue
+    const row = byId.get(itemId)
+    const min = normalizeMinOrderQty(row?.min_order_qty)
+    const qty = Math.floor(Number(line.qty) || 0)
+    const name = String(line.name || row?.name || 'Item').trim()
+    if (qty < min) {
+      return {
+        ok: false,
+        message: `"${name}" exige no minimo ${min} unidades (pedido com ${qty}).`,
+      }
+    }
+  }
+
+  return { ok: true }
+}
+
 app.post('/orders', async (req, res) => {
   const { observation, items } = req.body
   const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
@@ -462,6 +501,18 @@ app.post('/orders', async (req, res) => {
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: 'Pedido precisa ter itens' })
+  }
+
+  try {
+    const minQtyCheck = await validateOrderItemsMinQty(items)
+    if (!minQtyCheck.ok) {
+      return res.status(400).json({ message: minQtyCheck.message })
+    }
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Erro ao validar quantidade minima',
+      detail: error.message,
+    })
   }
 
   if (orderType === 'table' && !tableNumber) {

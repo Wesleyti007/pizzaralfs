@@ -35,6 +35,12 @@ export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
   })
 }
 
+export function normalizeMinOrderQty(value) {
+  const parsed = Math.floor(Number(value))
+  if (!Number.isFinite(parsed) || parsed < 1) return 1
+  return Math.min(99, parsed)
+}
+
 export function normalizeMenuItemRow(row) {
   const category = row.category || 'pizzas'
   const basePrice = Number(row.price) || 0
@@ -68,6 +74,7 @@ export function normalizeMenuItemRow(row) {
     price,
     image: row.image || '',
     sizes,
+    minOrderQty: normalizeMinOrderQty(row.min_order_qty ?? row.minOrderQty),
     isActive: row.is_active !== false && row.isActive !== false,
   }
   if (Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
@@ -82,6 +89,7 @@ export function buildMenuItemPayload(body) {
   const description = String(body.description || '').trim()
   const image = String(body.image || '').trim()
   const isActive = body.isActive !== false && body.active !== false
+  const minOrderQty = normalizeMinOrderQty(body.minOrderQty)
 
   if (isPizzaCategory(category)) {
     const sizes = normalizePizzaSizes(body.sizes, body.price)
@@ -101,6 +109,7 @@ export function buildMenuItemPayload(body) {
         image,
         sizes,
         deliveryPrice: null,
+        minOrderQty,
         isActive,
       },
     }
@@ -130,6 +139,7 @@ export function buildMenuItemPayload(body) {
       image,
       sizes: [],
       deliveryPrice,
+      minOrderQty,
       isActive,
     },
   }

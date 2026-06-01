@@ -39,22 +39,38 @@ export function prefersWebp(acceptHeader) {
   return String(acceptHeader || '').includes('image/webp')
 }
 
+async function loadImageBufferFromDecoded(decoded) {
+  if (decoded.buffer) return decoded.buffer
+  if (!decoded.redirect) return null
+
+  const response = await fetch(decoded.redirect, {
+    headers: { Accept: 'image/*' },
+    signal: AbortSignal.timeout(12000),
+  })
+  if (!response.ok) return null
+  const buffer = Buffer.from(await response.arrayBuffer())
+  if (buffer.length < 64) return null
+  return buffer
+}
+
 export async function serveMenuItemImageFromStored(
   storedValue,
   { itemId = 0, variant = 'card', preferWebp = false } = {},
 ) {
   const decoded = decodeMenuItemImagePayload(storedValue)
   if (!decoded) return null
-  if (decoded.redirect) return { redirect: decoded.redirect }
 
-  const cacheKey = `${itemId}:${decoded.cacheKey}:${variant}:${preferWebp ? 'webp' : 'jpeg'}`
+  const sourceBuffer = await loadImageBufferFromDecoded(decoded)
+  if (!sourceBuffer) return null
+
+  const cacheKey = `${itemId}:${decoded.cacheKey || decoded.redirect || 'src'}:${variant}:${preferWebp ? 'webp' : 'jpeg'}`
   const cached = cacheGet(cacheKey)
   if (cached) {
     return { buffer: cached.buffer, mime: cached.mime, etag: cached.etag }
   }
 
   const spec = VARIANTS[variant] || VARIANTS.card
-  let pipeline = sharp(decoded.buffer, { failOn: 'none' })
+  let pipeline = sharp(sourceBuffer, { failOn: 'none' })
     .rotate()
     .resize(spec.width, spec.height, {
       fit: 'cover',

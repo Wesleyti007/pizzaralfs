@@ -21,6 +21,7 @@ MIGRATIONS=(
   migrate_delivery_km_cep.sql
   migrate_menu_item_active.sql
   migrate_orders_payment.sql
+  migrate_menu_min_order_qty.sql
 )
 
 psql_exec() {

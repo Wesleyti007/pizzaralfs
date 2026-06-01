@@ -3,7 +3,7 @@ export function decodeMenuItemImagePayload(imageValue) {
   const raw = String(imageValue || '').trim()
   if (!raw || raw.length < 64) return null
   if (/^https?:\/\//i.test(raw)) {
-    return { redirect: raw }
+    return { redirect: raw, cacheKey: `url-${raw.length}` }
   }
 
   const match = raw.match(/^data:image\/([a-z0-9+.-]+);base64,(.+)$/i)

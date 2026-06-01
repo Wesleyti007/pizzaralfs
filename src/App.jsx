@@ -52,6 +52,12 @@ import {
   menuItemsForStorage,
   shouldShowAdminMenuPreview,
 } from './menuItemImage.js'
+import {
+  formatMinOrderHint,
+  getMinOrderQty,
+  normalizeMinOrderQty,
+  validateCartMinOrderQty,
+} from './minOrderQty.js'
 import { downloadOrderReceiptImage } from './orderReceiptImage.js'
 import { PizzaSlicePicker } from './PizzaSlicePicker.jsx'
 import {
@@ -321,6 +327,7 @@ function buildMenuItemApiPayload(item, isActive) {
     subcategory: item.subcategory || '',
     name: item.name,
     description: item.description || '',
+    minOrderQty: getMinOrderQty(item),
     isActive: isActive !== false,
   }
 
@@ -355,6 +362,7 @@ function normalizeMenuItems(items, categories) {
       image,
       hasImage: item.hasImage === true || hasMenuItemImage(image),
       isActive: item.isActive !== false,
+      minOrderQty: normalizeMinOrderQty(item.minOrderQty),
     }
   })
 }
@@ -1002,6 +1010,7 @@ function OrderPanel({
   setObservation,
   isSubmittingOrder,
   orderMessage,
+  cartMinOrderMessage,
   changeQuantity,
   finalizeOrder,
   onClose,
@@ -1046,14 +1055,25 @@ function OrderPanel({
               {item.sizeLabel && getCartFlavorIds(item).length <= 1 && (
                 <span className="basket-item-size">{item.sizeLabel}</span>
               )}
+              {getMinOrderQty(item) > 1 && (
+                <span className="basket-item-min-qty">Mín. {getMinOrderQty(item)} un.</span>
+              )}
               <span>{formatBRL(item.price * item.qty)}</span>
             </div>
             <div className="qty">
-              <button type="button" onClick={() => changeQuantity(cartLineKey(item), -1)}>
+              <button
+                type="button"
+                onClick={() => changeQuantity(cartLineKey(item), -1)}
+                aria-label="Diminuir quantidade"
+              >
                 -
               </button>
               <span>{item.qty}</span>
-              <button type="button" onClick={() => changeQuantity(cartLineKey(item), 1)}>
+              <button
+                type="button"
+                onClick={() => changeQuantity(cartLineKey(item), 1)}
+                aria-label="Aumentar quantidade"
+              >
                 +
               </button>
             </div>
@@ -1229,6 +1249,9 @@ function OrderPanel({
           >
             {isSubmittingOrder ? 'Enviando...' : isDelivery ? 'Finalizar delivery' : 'Finalizar pedido'}
           </button>
+          {cartMinOrderMessage && (
+            <p className="order-message order-message--warn">{cartMinOrderMessage}</p>
+          )}
           {orderMessage && <p className="order-message">{orderMessage}</p>}
         </footer>
       </div>
@@ -1393,11 +1416,16 @@ function MenuItemCard({
         style={placeholderStyle}
       >
         {showImage ? (
-          <CatalogCardImage
-            item={menuItem}
-            name={menuItem.name}
-            priority={imagePriority}
-          />
+          <>
+            <CatalogCardImage
+              item={menuItem}
+              name={menuItem.name}
+              priority={imagePriority}
+            />
+            <span className="card-media-illustrative" aria-hidden="true">
+              Ilustrativa
+            </span>
+          </>
         ) : null}
       </div>
       <h3>{menuItem.name}</h3>
@@ -1446,8 +1474,14 @@ function MenuItemCard({
         </strong>
       )}
 
+      {formatMinOrderHint(menuItem) && (
+        <p className="card-min-order-hint">{formatMinOrderHint(menuItem)}</p>
+      )}
+
       <button type="button" className="btn-add" onClick={handleAdd} disabled={addDisabled}>
-        Adicionar
+        {getMinOrderQty(menuItem) > 1
+          ? `Adicionar ${getMinOrderQty(menuItem)} un.`
+          : 'Adicionar'}
       </button>
     </article>
   )
@@ -1505,6 +1539,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
   )
 
   const addToCart = (cartItem) => {
+    const minQty = getMinOrderQty(cartItem)
     setCart((current) => {
       const existing = current.find((item) => sameCartLine(item, cartItem))
       if (existing) {
@@ -1513,18 +1548,23 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
         )
       }
 
-      return [...current, { ...cartItem, qty: 1 }]
+      return [...current, { ...cartItem, qty: minQty }]
     })
   }
 
   const changeQuantity = (lineKey, delta) => {
     setCart((current) =>
       current
-        .map((item) =>
-          cartLineKey(item) === lineKey
-            ? { ...item, qty: Math.max(0, item.qty + delta) }
-            : item,
-        )
+        .map((item) => {
+          if (cartLineKey(item) !== lineKey) return item
+          const minQty = getMinOrderQty(item)
+          const nextQty = item.qty + delta
+          if (nextQty <= 0) return { ...item, qty: 0 }
+          if (nextQty < minQty) {
+            return delta < 0 ? { ...item, qty: 0 } : { ...item, qty: minQty }
+          }
+          return { ...item, qty: nextQty }
+        })
         .filter((item) => item.qty > 0),
     )
   }
@@ -1545,7 +1585,10 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     () => (isDelivery ? validateDeliveryInfo(deliveryInfo, { orderTotal: total }) : { ok: true }),
     [isDelivery, deliveryInfo, total],
   )
-  const canFinalize = !isDelivery || deliveryValidation.ok
+  const cartMinOrderValidation = useMemo(() => validateCartMinOrderQty(cart), [cart])
+  const canFinalize =
+    cartMinOrderValidation.ok && (!isDelivery || deliveryValidation.ok)
+  const cartMinOrderMessage = cartMinOrderValidation.ok ? '' : cartMinOrderValidation.message
   const deliveryFieldErrors = useMemo(() => {
     if (!isDelivery || cart.length === 0) return {}
     if (deliveryValidation.ok) return {}
@@ -1606,6 +1649,12 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
 
   const finalizeOrder = async () => {
     if (cart.length === 0 || isSubmittingOrder) return
+
+    const minCheck = validateCartMinOrderQty(cart)
+    if (!minCheck.ok) {
+      setOrderMessage(minCheck.message)
+      return
+    }
 
     let deliveryData = null
     if (isDelivery) {
@@ -1749,6 +1798,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     setObservation,
     isSubmittingOrder,
     orderMessage,
+    cartMinOrderMessage,
     changeQuantity,
     finalizeOrder,
     formatBRL,
@@ -1758,7 +1808,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
   const orderPanelSheet = (
     <OrderPanel
       {...orderPanelProps}
-      className={`basket order-panel order-panel--sheet${orderOpen ? ' order-panel-open' : ''}`}
+      className="basket order-panel order-panel--sheet order-panel-open"
       onClose={() => setOrderOpen(false)}
     />
   )
@@ -1781,20 +1831,22 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
           onClick={() => setOrderOpen(false)}
         />
       )}
-      <div className={`order-mobile-bar${orderOpen ? ' order-mobile-bar--hidden' : ''}`}>
-        <button
-          type="button"
-          className="order-mobile-bar-btn"
-          onClick={() => setOrderOpen(true)}
-          aria-expanded={orderOpen}
-        >
-          <span className="order-mobile-bar-title">Seu pedido</span>
-          <span className="order-mobile-bar-meta">
-            {cartCount} {cartCount === 1 ? 'item' : 'itens'} · R$ {total.toFixed(2)}
-          </span>
-        </button>
-      </div>
-      {orderPanelSheet}
+      {!orderOpen && (
+        <div className="order-mobile-bar">
+          <button
+            type="button"
+            className="order-mobile-bar-btn"
+            onClick={() => setOrderOpen(true)}
+            aria-expanded={false}
+          >
+            <span className="order-mobile-bar-title">Seu pedido</span>
+            <span className="order-mobile-bar-meta">
+              {cartCount} {cartCount === 1 ? 'item' : 'itens'} · R$ {total.toFixed(2)}
+            </span>
+          </button>
+        </div>
+      )}
+      {orderOpen && orderPanelSheet}
     </div>,
     document.body,
   )
@@ -1807,6 +1859,10 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
       aria-hidden={splashPhase === 'visible'}
     >
       <p className="home-intro">Escolha seus itens e monte seu pedido</p>
+      <p className="catalog-images-disclaimer catalog-images-disclaimer--global" role="note">
+        <span className="catalog-images-disclaimer-label">Imagens ilustrativas</span>
+        As fotos dos produtos são meramente ilustrativas e podem variar do item servido.
+      </p>
       <section className="layout home-layout">
       <div className="menu-grid">
         <div className="menu-watermark" aria-hidden="true">
@@ -2867,6 +2923,7 @@ const emptyItemForm = {
   deliveryPrice: '',
   sizePrices: emptySizePrices(),
   sizeDeliveryPrices: emptySizePrices(),
+  minOrderQty: '1',
   image: '',
   isActive: true,
 }
@@ -2882,6 +2939,7 @@ function buildItemFormFromMenuItem(item) {
     deliveryPrice: hasPizzaSizes ? '' : formatPriceForInput(item.deliveryPrice),
     sizePrices: buildSizePricesFromItem(item),
     sizeDeliveryPrices: buildSizePricesFromItem(item, { delivery: true }),
+    minOrderQty: String(getMinOrderQty(item)),
     image: item.image || '',
     isActive: item.isActive !== false,
   }
@@ -3040,6 +3098,22 @@ function AdminItemFormFields({
           </label>
         </div>
       )}
+      <label className="field-full">
+        <span className="field-label">Pedido mínimo (unidades)</span>
+        <input
+          name="minOrderQty"
+          type="number"
+          min={1}
+          max={99}
+          step={1}
+          value={form.minOrderQty}
+          onChange={onChange}
+          aria-label="Quantidade mínima por pedido"
+        />
+        <small className="field-hint">
+          Ex.: esfirras = 5. Use 1 quando não houver quantidade mínima.
+        </small>
+      </label>
       <label className="admin-active-toggle field-full">
         <input type="checkbox" name="isActive" checked={form.isActive !== false} onChange={onChange} />
         <span>Item ativo no cardápio</span>
@@ -3840,6 +3914,9 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
           </div>
         </dl>
         <p className="admin-item-description">{item.description}</p>
+        {getMinOrderQty(item) > 1 && (
+          <p className="admin-item-min-order">Pedido mínimo: {getMinOrderQty(item)} un.</p>
+        )}
         <AdminItemPricing item={item} />
       </div>
       <div className="admin-item-actions">
@@ -4419,12 +4496,15 @@ function AdminPage({
       }
     }
 
+    const minOrderQty = normalizeMinOrderQty(form.minOrderQty)
+
     const basePayload = {
       category: form.category,
       subcategory: subcategoryOptions.length > 0 ? form.subcategory || '' : '',
       name: form.name.trim(),
       description: form.description.trim(),
       image: form.image.trim(),
+      minOrderQty,
       isActive: form.isActive !== false,
     }
 
