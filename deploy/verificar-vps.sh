@@ -17,10 +17,11 @@ echo "==> Health da API"
 curl -s "http://127.0.0.1:3001/health" || true
 echo ""
 
-if curl -s "http://127.0.0.1:3001/health" | grep -q '"release":"20260531"'; then
-  echo "OK: API versão nova (release 20260531)"
+EXPECTED_RELEASE="$(date +%Y%m%d)"
+if curl -s "http://127.0.0.1:3001/health" | grep -q "\"release\":\"${EXPECTED_RELEASE}\""; then
+  echo "OK: release de hoje (${EXPECTED_RELEASE})"
 else
-  echo "AVISO: API sem release 20260531 — precisa docker compose build --no-cache app"
+  echo "AVISO: /health sem release ${EXPECTED_RELEASE} — rode publicar-no-vps.sh ou deploy.sh de novo"
 fi
 
 echo "==> JS publicado (hash no index)"

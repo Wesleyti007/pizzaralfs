@@ -33,7 +33,7 @@ fi
 
 echo "==> Reiniciar app e Caddy no VPS (usa dist/ e backend/src/ do disco)"
 ssh "${VPS_USER}@${VPS_HOST}" \
-  "cd ${REMOTE_DIR}/deploy && docker compose up -d --force-recreate app && docker compose restart caddy"
+  "cd ${REMOTE_DIR}/deploy && export APP_RELEASE=\$(date +%Y%m%d) && echo \"APP_RELEASE=\$APP_RELEASE\" && docker compose up -d --force-recreate app && docker compose restart caddy"
 
 echo "==> Status dos containers"
 ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/deploy && docker compose ps"
@@ -42,6 +42,6 @@ echo "==> Conferir versao publicada"
 ssh "${VPS_USER}@${VPS_HOST}" "curl -s https://pizzaralfs.com.br/health || curl -s http://127.0.0.1:3001/health" || true
 
 echo ""
-echo "Pronto. Teste: https://pizzaralfs.com.br/health  (release deve ser 20260531)"
+echo "Pronto. Teste: https://pizzaralfs.com.br/health  (release = data do deploy no VPS, ex. $(date +%Y%m%d))"
 echo "Admin:  https://pizzaralfs.com.br/admin/ralfs"
 echo "        usuario admin | senha definida em deploy/.env (ADMIN_PASSWORD)"

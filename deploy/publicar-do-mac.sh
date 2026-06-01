@@ -24,11 +24,12 @@ rsync -avz \
   "$PROJECT_ROOT/" "${VPS_USER}@${VPS_HOST}:${REMOTE_DIR}/"
 
 echo "==> Reiniciar app e Caddy no VPS"
-ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/deploy && docker compose up -d --force-recreate app && docker compose restart caddy"
+ssh "${VPS_USER}@${VPS_HOST}" \
+  "cd ${REMOTE_DIR}/deploy && export APP_RELEASE=\$(date +%Y%m%d) && echo \"APP_RELEASE=\$APP_RELEASE\" && docker compose up -d --force-recreate app && docker compose restart caddy"
 
 echo "==> Health"
 ssh "${VPS_USER}@${VPS_HOST}" "curl -s http://127.0.0.1:3001/health || true"
 
 echo ""
 echo "Pronto: https://pizzaralfs.com.br/admin/ralfs"
-echo "Confira release 20260531 no health acima."
+echo "Confira release no health (deve ser a data de hoje: $(date +%Y%m%d))."

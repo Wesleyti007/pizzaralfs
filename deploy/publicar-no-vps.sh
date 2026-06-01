@@ -46,7 +46,9 @@ if [ -f .env ]; then
 fi
 
 echo "==> Subir app + Caddy"
-export APP_RELEASE="${APP_RELEASE:-20260531}"
+# /health release = data deste deploy (sobrescreve APP_RELEASE fixo no .env)
+export APP_RELEASE="$(date +%Y%m%d)"
+echo "    APP_RELEASE=${APP_RELEASE}"
 docker compose up -d --force-recreate app
 docker compose restart caddy
 
