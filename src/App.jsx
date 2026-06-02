@@ -150,7 +150,7 @@ const WAITER_USER = String(import.meta.env.VITE_WAITER_USER || 'garcom').trim()
 const WAITER_PASSWORD = String(import.meta.env.VITE_WAITER_PASSWORD || 'ralfsgarcom@26').trim()
 const HOME_SPLASH_MS = 4000
 const HOME_SPLASH_FADE_MS = 400
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+import { API_BASE_URL } from './apiBaseUrl.js'
 const LOGO_URL = '/logo-ralfs-web.png'
 const DEVELOPER_LINKEDIN_URL =
   'https://www.linkedin.com/in/wesley-santos-515b73152/'
@@ -1003,9 +1003,7 @@ function BrandHeader({
                   Sair
                 </button>
               </>
-            ) : (
-              <Link to={GARCOM_PATH}>Garçom</Link>
-            )}
+            ) : null}
           </>
         )}
       </nav>
@@ -1920,6 +1918,7 @@ function MenuItemCard({
             onResetFlavors={handleResetFlavors}
             normalizeItemId={normalizeItemId}
             sameItemId={sameItemId}
+            forDelivery={forDelivery}
           />
         </>
       ) : (

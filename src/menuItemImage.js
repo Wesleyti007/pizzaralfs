@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+import { API_BASE_URL } from './apiBaseUrl.js'
 
 export function hasMenuItemImageValue(image) {
   return String(image ?? '').trim().length > 32

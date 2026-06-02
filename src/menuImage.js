@@ -1,7 +1,7 @@
 /** Proporção e tamanho usados nos cards do cardápio (16:9). */
 export const MENU_IMAGE_WIDTH = 480
 export const MENU_IMAGE_HEIGHT = 270
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+import { API_BASE_URL } from './apiBaseUrl.js'
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 const JPEG_QUALITY = 0.82
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i

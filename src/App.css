@@ -1394,6 +1394,10 @@ body.home-splash-active .brand-header {
 }
 
 .pizza-flavor-quick-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   width: 100%;
   text-align: left;
   padding: 10px 12px;
@@ -1407,6 +1411,27 @@ body.home-splash-active .brand-header {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+.pizza-flavor-quick-btn-name {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.pizza-flavor-quick-btn-price {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--brand-red);
+  white-space: nowrap;
+}
+
+.pizza-flavor-chip-price {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--brand-red);
+  white-space: nowrap;
 }
 
 .pizza-flavor-quick-btn:active {

@@ -5,6 +5,12 @@ import {
   groupPizzaFlavorOptions,
   PIZZA_FLAVOR_COLORS,
 } from './catalog.js'
+import { formatOrderMoney } from './orders.js'
+import { resolveUnitPrice } from './pricing.js'
+
+function flavorPriceLabel(item, sizeId, forDelivery) {
+  return formatOrderMoney(resolveUnitPrice(item, sizeId, forDelivery))
+}
 
 function slicePath(cx, cy, radius, index, total) {
   const start = -Math.PI / 2 + (index * 2 * Math.PI) / total
@@ -29,6 +35,8 @@ function PizzaFlavorQuickPick({
   onPick,
   normalizeItemId,
   pickerId,
+  sizeId,
+  forDelivery = false,
 }) {
   const [search, setSearch] = useState('')
   const filteredSavory = useMemo(
@@ -58,7 +66,10 @@ function PizzaFlavorQuickPick({
                   setSearch('')
                 }}
               >
-                {item.name}
+                <span className="pizza-flavor-quick-btn-name">{item.name}</span>
+                <span className="pizza-flavor-quick-btn-price">
+                  {flavorPriceLabel(item, sizeId, forDelivery)}
+                </span>
               </button>
             </li>
           ))}
@@ -104,6 +115,7 @@ export function PizzaSlicePicker({
   onResetFlavors,
   normalizeItemId,
   sameItemId,
+  forDelivery = false,
 }) {
   const maxFlavors = getMaxFlavorsForSize(sizeId)
   const canAddMore = selectedFlavors.length < maxFlavors && otherPizzaOptions.length > 0
@@ -234,6 +246,9 @@ export function PizzaSlicePicker({
                   >
                     <span className="pizza-flavor-chip-dot" aria-hidden="true" />
                     <span className="pizza-flavor-chip-name">{flavor.name}</span>
+                    <span className="pizza-flavor-chip-price">
+                      {flavorPriceLabel(flavor, sizeId, forDelivery)}
+                    </span>
                     {!sameItemId(flavor.id, primaryFlavor.id) && (
                       <button
                         type="button"
@@ -260,6 +275,8 @@ export function PizzaSlicePicker({
                   sweetOptions={sweetOptions}
                   normalizeItemId={normalizeItemId}
                   onPick={onAddFlavor}
+                  sizeId={sizeId}
+                  forDelivery={forDelivery}
                 />
                 <p className="pizza-half-hint">{sizeHint} (pode misturar salgada e doce).</p>
               </div>
@@ -268,7 +285,8 @@ export function PizzaSlicePicker({
         ) : (
           <div className="pizza-combo-simple">
             <p className="pizza-combo-simple-text">
-              {pieceCount} pedaços · 1 sabor ({primaryFlavor.name})
+              {pieceCount} pedaços · 1 sabor ({primaryFlavor.name} ·{' '}
+              {flavorPriceLabel(primaryFlavor, sizeId, forDelivery)})
             </p>
             {canAddMore ? (
               <button

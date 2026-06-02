@@ -11,9 +11,9 @@ REMOTE_DIR="${REMOTE_DIR:-/opt/pizza-ralfs}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "==> Build do frontend no Mac"
+echo "==> Build do frontend no Mac (API mesma origem em producao)"
 cd "$PROJECT_ROOT"
-npm run build
+VITE_API_URL= npm run build
 
 echo "==> Enviando projeto para ${VPS_USER}@${VPS_HOST}:${REMOTE_DIR}/"
 rsync -avz \
