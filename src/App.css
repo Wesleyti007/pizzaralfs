@@ -1288,6 +1288,68 @@ body.home-splash-active .brand-header {
   gap: 6px;
 }
 
+.pizza-combo-simple {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(197, 160, 89, 0.25);
+}
+
+.pizza-combo-simple-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--brand-text-muted);
+  line-height: 1.4;
+}
+
+.pizza-combo-open {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(139, 30, 30, 0.35);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--brand-red);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+}
+
+.pizza-combo-open:hover {
+  background: rgba(139, 30, 30, 0.05);
+}
+
+.pizza-combo-toolbar {
+  margin-bottom: 8px;
+}
+
+.pizza-combo-cancel {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(139, 30, 30, 0.08);
+  color: var(--brand-red);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+}
+
+.pizza-combo-cancel:hover {
+  background: rgba(139, 30, 30, 0.12);
+}
+
+.pizza-slice-picker--expanded .pizza-flavor-quick-scroll {
+  max-height: 160px;
+}
+
 .pizza-flavor-quick-pick {
   display: grid;
   gap: 8px;

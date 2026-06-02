@@ -1790,6 +1790,10 @@ function MenuItemCard({
     )
   }
 
+  const handleResetFlavors = () => {
+    setSelectedFlavorIds([normalizeItemId(menuItem.id)])
+  }
+
   const handleAdd = () => {
     if (hasOptions) {
       const selectedOption =
@@ -1913,6 +1917,7 @@ function MenuItemCard({
             categories={categories}
             onAddFlavor={handleAddFlavor}
             onRemoveFlavor={handleRemoveFlavor}
+            onResetFlavors={handleResetFlavors}
             normalizeItemId={normalizeItemId}
             sameItemId={sameItemId}
           />

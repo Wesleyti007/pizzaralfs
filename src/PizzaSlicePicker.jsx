@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   distributeFlavorSlices,
   getMaxFlavorsForSize,
@@ -101,13 +101,38 @@ export function PizzaSlicePicker({
   categories = [],
   onAddFlavor,
   onRemoveFlavor,
+  onResetFlavors,
   normalizeItemId,
   sameItemId,
 }) {
   const maxFlavors = getMaxFlavorsForSize(sizeId)
   const canAddMore = selectedFlavors.length < maxFlavors && otherPizzaOptions.length > 0
   const showMulti = maxFlavors > 1
-  const showAnimatedPizza = sizeId === 'media' || sizeId === 'grande'
+  const showAnimatedPizza =
+    showMulti && selectedFlavors.length > 1 && (sizeId === 'media' || sizeId === 'grande')
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    setExpanded(false)
+  }, [sizeId])
+
+  useEffect(() => {
+    if (selectedFlavors.length > 1) {
+      setExpanded(true)
+    }
+  }, [selectedFlavors.length])
+
+  const handleCancelCombo = () => {
+    onResetFlavors?.()
+    setExpanded(false)
+  }
+
+  const sizeHint =
+    sizeId === 'media'
+      ? 'Média: até 2 sabores'
+      : sizeId === 'grande'
+        ? 'Grande: até 4 sabores'
+        : ''
 
   const sliceOwners = useMemo(
     () => distributeFlavorSlices(pieceCount, selectedFlavors.length),
@@ -179,60 +204,83 @@ export function PizzaSlicePicker({
   )
 
   return (
-    <div className="pizza-slice-picker">
+    <div className={`pizza-slice-picker${expanded ? ' pizza-slice-picker--expanded' : ''}`}>
       {showMulti ? (
-        <>
-          {showAnimatedPizza && pizzaVisual}
-
-          <div className="pizza-flavor-chips">
-            <span className="pizza-sizes-label">Sabores</span>
-            <ul className="pizza-flavor-chip-list">
-              {selectedFlavors.map((flavor, index) => (
-                <li
-                  key={normalizeItemId(flavor.id)}
-                  className="pizza-flavor-chip"
-                  style={{
-                    '--chip-color': PIZZA_FLAVOR_COLORS[index % PIZZA_FLAVOR_COLORS.length],
-                    '--chip-delay': `${index * 30}ms`,
-                  }}
-                >
-                  <span className="pizza-flavor-chip-dot" aria-hidden="true" />
-                  <span className="pizza-flavor-chip-name">{flavor.name}</span>
-                  {!sameItemId(flavor.id, primaryFlavor.id) && (
-                    <button
-                      type="button"
-                      className="pizza-flavor-chip-remove"
-                      aria-label={`Remover ${flavor.name}`}
-                      onClick={() => onRemoveFlavor(flavor.id)}
-                    >
-                      ×
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {canAddMore && (
-            <div className="pizza-add-flavor">
-              <p className="pizza-half-flavor-label" id="pizza-add-flavor-label">
-                Adicionar sabor ({selectedFlavors.length}/{maxFlavors})
-              </p>
-              <PizzaFlavorQuickPick
-                pickerId="pizza-add-flavor-list"
-                savoryOptions={savoryOptions}
-                sweetOptions={sweetOptions}
-                normalizeItemId={normalizeItemId}
-                onPick={onAddFlavor}
-              />
-              <p className="pizza-half-hint">
-                {sizeId === 'media'
-                  ? 'Média: até 2 sabores (pode misturar salgada e doce).'
-                  : 'Grande: até 4 sabores (pode misturar salgada e doce).'}
-              </p>
+        expanded ? (
+          <>
+            <div className="pizza-combo-toolbar">
+              <button
+                type="button"
+                className="pizza-combo-cancel"
+                onClick={handleCancelCombo}
+              >
+                Cancelar · só {primaryFlavor.name}
+              </button>
             </div>
-          )}
-        </>
+
+            {showAnimatedPizza && pizzaVisual}
+
+            <div className="pizza-flavor-chips">
+              <span className="pizza-sizes-label">Sabores</span>
+              <ul className="pizza-flavor-chip-list">
+                {selectedFlavors.map((flavor, index) => (
+                  <li
+                    key={normalizeItemId(flavor.id)}
+                    className="pizza-flavor-chip"
+                    style={{
+                      '--chip-color': PIZZA_FLAVOR_COLORS[index % PIZZA_FLAVOR_COLORS.length],
+                      '--chip-delay': `${index * 30}ms`,
+                    }}
+                  >
+                    <span className="pizza-flavor-chip-dot" aria-hidden="true" />
+                    <span className="pizza-flavor-chip-name">{flavor.name}</span>
+                    {!sameItemId(flavor.id, primaryFlavor.id) && (
+                      <button
+                        type="button"
+                        className="pizza-flavor-chip-remove"
+                        aria-label={`Remover ${flavor.name}`}
+                        onClick={() => onRemoveFlavor(flavor.id)}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {canAddMore && (
+              <div className="pizza-add-flavor">
+                <p className="pizza-half-flavor-label" id="pizza-add-flavor-label">
+                  Adicionar sabor ({selectedFlavors.length}/{maxFlavors})
+                </p>
+                <PizzaFlavorQuickPick
+                  pickerId="pizza-add-flavor-list"
+                  savoryOptions={savoryOptions}
+                  sweetOptions={sweetOptions}
+                  normalizeItemId={normalizeItemId}
+                  onPick={onAddFlavor}
+                />
+                <p className="pizza-half-hint">{sizeHint} (pode misturar salgada e doce).</p>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="pizza-combo-simple">
+            <p className="pizza-combo-simple-text">
+              {pieceCount} pedaços · 1 sabor ({primaryFlavor.name})
+            </p>
+            {canAddMore ? (
+              <button
+                type="button"
+                className="pizza-combo-open"
+                onClick={() => setExpanded(true)}
+              >
+                Combinar sabores (meia a meia)
+              </button>
+            ) : null}
+          </div>
+        )
       ) : (
         <p className="pizza-half-hint pizza-half-hint--broto">
           Broto: apenas um sabor (esta pizza inteira).
