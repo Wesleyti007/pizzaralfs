@@ -82,7 +82,12 @@ export const DEFAULT_DELIVERY_SETTINGS = {
 }
 import {
   DEFAULT_CATEGORIES,
-  catalogPathWithMesa,
+  catalogPathWithTable,
+  clearWaiterSession,
+  clearWaiterTableSession,
+  garcomCatalogPath,
+  loadWaiterSession,
+  saveWaiterSession,
   filterMenuByCatalog,
   filterMenuItemsForAdmin,
   getCategoryLabel,
@@ -110,6 +115,7 @@ import {
   isPizzaCategory,
   itemHasSizes,
   commitCategoryMinOrderInput,
+  getCategorySubcategories,
   normalizeCategories,
   parseCategoryMinOrderInput,
   normalizeMenuItemCategories,
@@ -131,9 +137,13 @@ const STORAGE_KEY = 'pizza-ralfs-menu'
 const CATEGORIES_STORAGE_KEY = 'pizza-ralfs-categories'
 const TABLES_STORAGE_KEY = 'pizza-ralfs-tables'
 const AUTH_STORAGE_KEY = 'pizza-ralfs-auth'
+const WAITER_AUTH_STORAGE_KEY = 'pizza-ralfs-waiter-auth'
 const ADMIN_PATH = '/admin/ralfs'
+const GARCOM_PATH = '/garcom'
 const ADMIN_USER = String(import.meta.env.VITE_ADMIN_USER || 'admin').trim()
 const ADMIN_PASSWORD = String(import.meta.env.VITE_ADMIN_PASSWORD || '25364758@Cd').trim()
+const WAITER_USER = String(import.meta.env.VITE_WAITER_USER || 'garcom').trim()
+const WAITER_PASSWORD = String(import.meta.env.VITE_WAITER_PASSWORD || 'ralfsgarcom@26').trim()
 const HOME_SPLASH_MS = 4000
 const HOME_SPLASH_FADE_MS = 400
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
@@ -146,7 +156,16 @@ const CatalogSplashContext = createContext('hidden')
 const CatalogReceiptContext = createContext(null)
 
 function isCatalogRoute(pathname) {
-  return pathname === '/' || pathname.startsWith('/categoria/')
+  return (
+    pathname === '/' ||
+    pathname.startsWith('/categoria/') ||
+    pathname === GARCOM_PATH ||
+    pathname.startsWith(`${GARCOM_PATH}/categoria/`)
+  )
+}
+
+function isWaiterRoute(pathname) {
+  return pathname === GARCOM_PATH || pathname.startsWith(`${GARCOM_PATH}/`)
 }
 
 const defaultMenu = [
@@ -447,10 +466,26 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(
     () => localStorage.getItem(AUTH_STORAGE_KEY) === 'true',
   )
+  const [isWaiterAuthenticated, setIsWaiterAuthenticated] = useState(() => {
+    if (localStorage.getItem(WAITER_AUTH_STORAGE_KEY) === 'true') return true
+    // sessão antiga (pizza-ralfs-garcom-auth)
+    if (localStorage.getItem('pizza-ralfs-garcom-auth') === 'true') {
+      localStorage.setItem(WAITER_AUTH_STORAGE_KEY, 'true')
+      localStorage.removeItem('pizza-ralfs-garcom-auth')
+      return true
+    }
+    return false
+  })
   const [menuSyncMessage, setMenuSyncMessage] = useState('')
   const [deliverySettings, setDeliverySettings] = useState(() => ({ ...DEFAULT_DELIVERY_SETTINGS }))
   const categoriesRef = useRef(categories)
   categoriesRef.current = categories
+  const categoriesDirtyRef = useRef(false)
+
+  const setCategoriesFromAdmin = useCallback((value) => {
+    categoriesDirtyRef.current = true
+    setCategories(value)
+  }, [])
 
   const saveTables = (items) => {
     const normalized = Array.from(new Set(items)).sort((a, b) => a - b)
@@ -478,8 +513,10 @@ function App() {
         if (categoriesResponse.ok) {
           const apiCategories = await categoriesResponse.json()
           nextCategories = normalizeCategories(apiCategories)
-          setCategories(nextCategories)
-          localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(nextCategories))
+          if (!(adminMode && categoriesDirtyRef.current)) {
+            setCategories(nextCategories)
+            localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(nextCategories))
+          }
         }
 
         if (settingsResponse.ok) {
@@ -643,6 +680,7 @@ function App() {
         throw new Error('Falha ao salvar categorias')
       }
       const saved = normalizeCategories(await response.json())
+      categoriesDirtyRef.current = false
       setCategories(saved)
       localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(saved))
       const updatedMenu = normalizeMenuItems(menuItems, saved)
@@ -718,12 +756,32 @@ function App() {
     localStorage.removeItem(AUTH_STORAGE_KEY)
   }
 
+  const handleWaiterLogin = (username, password) => {
+    if (username === WAITER_USER && password === WAITER_PASSWORD) {
+      setIsWaiterAuthenticated(true)
+      localStorage.setItem(WAITER_AUTH_STORAGE_KEY, 'true')
+      return true
+    }
+    return false
+  }
+
+  const handleWaiterLogout = () => {
+    setIsWaiterAuthenticated(false)
+    localStorage.removeItem(WAITER_AUTH_STORAGE_KEY)
+    clearWaiterSession()
+  }
+
   return (
     <BrowserRouter>
       <CatalogSplashProvider>
       <CatalogReceiptProvider>
       <div className="app">
-        <BrandHeader isAuthenticated={isAuthenticated} onLogout={handleLogout} />
+        <BrandHeader
+          isAuthenticated={isAuthenticated}
+          onLogout={handleLogout}
+          isWaiterAuthenticated={isWaiterAuthenticated}
+          onWaiterLogout={handleWaiterLogout}
+        />
 
         <main>
           <Routes>
@@ -765,6 +823,48 @@ function App() {
             <Route
               path="/acesso-admin-ralfs-2026"
               element={<Navigate to={ADMIN_PATH} replace />}
+            />
+            <Route
+              path={GARCOM_PATH}
+              element={
+                <WaiterGate
+                  isWaiterAuthenticated={isWaiterAuthenticated}
+                  onLogin={handleWaiterLogin}
+                  onLogout={handleWaiterLogout}
+                  tables={tables}
+                  categories={categories}
+                  menuItems={menuItems}
+                  deliverySettings={deliverySettings}
+                />
+              }
+            />
+            <Route
+              path={`${GARCOM_PATH}/categoria/:categoryId`}
+              element={
+                <WaiterGate
+                  isWaiterAuthenticated={isWaiterAuthenticated}
+                  onLogin={handleWaiterLogin}
+                  onLogout={handleWaiterLogout}
+                  tables={tables}
+                  categories={categories}
+                  menuItems={menuItems}
+                  deliverySettings={deliverySettings}
+                />
+              }
+            />
+            <Route
+              path={`${GARCOM_PATH}/categoria/:categoryId/:subcategoryId`}
+              element={
+                <WaiterGate
+                  isWaiterAuthenticated={isWaiterAuthenticated}
+                  onLogin={handleWaiterLogin}
+                  onLogout={handleWaiterLogout}
+                  tables={tables}
+                  categories={categories}
+                  menuItems={menuItems}
+                  deliverySettings={deliverySettings}
+                />
+              }
             />
             <Route
               path={ADMIN_PATH}
@@ -826,14 +926,25 @@ function DeveloperCredit() {
   )
 }
 
-function BrandHeader({ isAuthenticated, onLogout }) {
+function BrandHeader({
+  isAuthenticated,
+  onLogout,
+  isWaiterAuthenticated,
+  onWaiterLogout,
+}) {
   const location = useLocation()
   const searchParams = useMemo(
     () => new URLSearchParams(location.search),
     [location.search],
   )
-  const mesa = resolveActiveTableNumber(searchParams)
-  const catalogTo = catalogPathWithMesa('/', mesa)
+  const waiterMode = isWaiterRoute(location.pathname)
+  const tableNumber = waiterMode
+    ? loadWaiterSession().tableNumber
+    : resolveActiveTableNumber(searchParams)
+  const catalogTo = waiterMode
+    ? garcomCatalogPath('/categoria/pizzas')
+    : catalogPathWithTable('/', tableNumber)
+  const waiterSession = waiterMode ? loadWaiterSession() : null
 
   return (
     <header className="brand-header">
@@ -841,21 +952,49 @@ function BrandHeader({ isAuthenticated, onLogout }) {
         <img src={LOGO_URL} alt="Pizzas Ralf's" width={120} height={120} decoding="async" />
       </Link>
       <div className="brand-header-text">
-        <p className="brand-header-kicker">Sabor tradicional</p>
+        <p className="brand-header-kicker">
+          {waiterMode ? 'Atendimento salão' : 'Sabor tradicional'}
+        </p>
         <h1 className="brand-header-title">Pizzas Ralf&apos;s</h1>
       </div>
       <nav className="brand-header-nav">
-        <Link to={catalogTo}>Cardápio</Link>
-        {isAuthenticated ? (
+        {waiterMode ? (
           <>
-            <Link to={ADMIN_PATH}>Admin</Link>
-            <Link to="/pedidos">Pedidos</Link>
-            <Link to="/relatorios">Relatórios</Link>
-            <button type="button" className="nav-btn" onClick={onLogout}>
+            {waiterSession?.tableNumber ? (
+              <span className="brand-header-mesa-pill">
+                {waiterSession.waiterName ? `${waiterSession.waiterName} · ` : ''}
+                Mesa {waiterSession.tableNumber}
+                {waiterSession.customerName
+                  ? ` · ${waiterSession.customerName}`
+                  : ''}
+              </span>
+            ) : waiterSession?.waiterName ? (
+              <span className="brand-header-mesa-pill">{waiterSession.waiterName}</span>
+            ) : null}
+            <Link to={GARCOM_PATH} onClick={() => clearWaiterTableSession()}>
+              Trocar mesa
+            </Link>
+            <button type="button" className="nav-btn" onClick={onWaiterLogout}>
               Sair
             </button>
           </>
-        ) : null}
+        ) : (
+          <>
+            <Link to={catalogTo}>Cardápio</Link>
+            {isAuthenticated ? (
+              <>
+                <Link to={ADMIN_PATH}>Admin</Link>
+                <Link to="/pedidos">Pedidos</Link>
+                <Link to="/relatorios">Relatórios</Link>
+                <button type="button" className="nav-btn" onClick={onLogout}>
+                  Sair
+                </button>
+              </>
+            ) : (
+              <Link to={GARCOM_PATH}>Garçom</Link>
+            )}
+          </>
+        )}
       </nav>
     </header>
   )
@@ -948,6 +1087,190 @@ function ProtectedRoute({ isAuthenticated }) {
   return <Outlet />
 }
 
+function WaiterSetupPage({
+  tables,
+  initialTableNumber,
+  initialCustomerName,
+  initialWaiterName,
+  onContinue,
+  onLogout,
+}) {
+  const [tableInput, setTableInput] = useState(
+    initialTableNumber ? String(initialTableNumber) : '',
+  )
+  const [customerName, setCustomerName] = useState(initialCustomerName || '')
+  const [waiterName, setWaiterName] = useState(initialWaiterName || '')
+  const [error, setError] = useState('')
+
+  const handleSubmit = (event) => {
+    event.preventDefault()
+    const tableNumber = Number(String(tableInput).trim())
+    const clientName = customerName.trim()
+    const staffName = waiterName.trim()
+    if (staffName.length < 2) {
+      setError('Informe seu nome (garçom).')
+      return
+    }
+    if (!Number.isInteger(tableNumber) || tableNumber <= 0) {
+      setError('Informe o número da mesa.')
+      return
+    }
+    if (clientName.length < 2) {
+      setError('Informe o nome do cliente (mínimo 2 letras).')
+      return
+    }
+    onContinue({ tableNumber, customerName: clientName, waiterName: staffName })
+  }
+
+  return (
+    <section className="login-page waiter-setup-page">
+      <h2>Garçom — Atendimento</h2>
+      <p>Informe seu nome, a mesa e o cliente antes de montar o pedido.</p>
+      <form onSubmit={handleSubmit} className="login-form waiter-setup-form">
+        <label className="waiter-setup-field">
+          <span className="waiter-setup-label">Seu nome (garçom)</span>
+          <input
+            type="text"
+            value={waiterName}
+            onChange={(event) => setWaiterName(event.target.value)}
+            placeholder="Ex.: Maria"
+            autoComplete="name"
+            required
+          />
+        </label>
+        <label className="waiter-setup-field">
+          <span className="waiter-setup-label">Mesa</span>
+          {tables.length > 0 ? (
+            <select
+              value={tableInput}
+              onChange={(event) => setTableInput(event.target.value)}
+              required
+            >
+              <option value="">Selecione…</option>
+              {tables.map((num) => (
+                <option key={num} value={String(num)}>
+                  Mesa {num}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={tableInput}
+              onChange={(event) => setTableInput(event.target.value)}
+              placeholder="Ex.: 5"
+              required
+            />
+          )}
+        </label>
+        <label className="waiter-setup-field">
+          <span className="waiter-setup-label">Nome do cliente</span>
+          <input
+            type="text"
+            value={customerName}
+            onChange={(event) => setCustomerName(event.target.value)}
+            placeholder="Ex.: João Silva"
+            autoComplete="name"
+            required
+          />
+        </label>
+        {error && <p className="login-error">{error}</p>}
+        <button type="submit" className="admin-btn admin-btn-primary">
+          Abrir cardápio
+        </button>
+        <button type="button" className="admin-btn admin-btn-outline" onClick={onLogout}>
+          Sair
+        </button>
+      </form>
+    </section>
+  )
+}
+
+function WaiterGate({
+  isWaiterAuthenticated,
+  onLogin,
+  onLogout,
+  tables,
+  categories,
+  menuItems,
+  deliverySettings,
+}) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [session, setSession] = useState(() => loadWaiterSession())
+
+  const refreshSession = useCallback(() => {
+    setSession(loadWaiterSession())
+  }, [])
+
+  const sessionReady =
+    session.tableNumber !== null &&
+    String(session.waiterName || '').trim().length >= 2 &&
+    String(session.customerName || '').trim().length >= 2
+  const forceTableSetup = location.pathname === GARCOM_PATH
+
+  useEffect(() => {
+    refreshSession()
+  }, [location.pathname, refreshSession])
+
+  useEffect(() => {
+    if (!isWaiterAuthenticated || !sessionReady || forceTableSetup) return
+    if (location.pathname === GARCOM_PATH) {
+      const firstCat = categories[0]?.id || 'pizzas'
+      navigate(garcomCatalogPath(`/categoria/${firstCat}`), { replace: true })
+    }
+  }, [
+    isWaiterAuthenticated,
+    sessionReady,
+    forceTableSetup,
+    location.pathname,
+    categories,
+    navigate,
+  ])
+
+  if (!isWaiterAuthenticated) {
+    return (
+      <LoginPage
+        title="Login Garçom"
+        subtitle="Acesso para montar pedidos das mesas no salão."
+        onLogin={onLogin}
+      />
+    )
+  }
+
+  if (!sessionReady || forceTableSetup) {
+    return (
+      <WaiterSetupPage
+        tables={tables}
+        initialTableNumber={session.tableNumber}
+        initialCustomerName={session.customerName}
+        initialWaiterName={session.waiterName}
+        onContinue={({ tableNumber, customerName, waiterName }) => {
+          saveWaiterSession({ tableNumber, customerName, waiterName })
+          refreshSession()
+          const firstCat = categories[0]?.id || 'pizzas'
+          navigate(garcomCatalogPath(`/categoria/${firstCat}`))
+        }}
+        onLogout={onLogout}
+      />
+    )
+  }
+
+  return (
+    <HomePage
+      catalogMode="waiter"
+      menuItems={menuItems}
+      tables={tables}
+      categories={categories}
+      deliverySettings={deliverySettings}
+      waiterSession={session}
+      onWaiterSessionUpdate={refreshSession}
+    />
+  )
+}
+
 function UnknownRoutePage() {
   const location = useLocation()
 
@@ -969,7 +1292,11 @@ function UnknownRoutePage() {
   )
 }
 
-function LoginPage({ onLogin }) {
+function LoginPage({
+  onLogin,
+  title = 'Login Admin',
+  subtitle = 'Acesso restrito para Admin e Pedidos.',
+}) {
   const [form, setForm] = useState({ username: '', password: '' })
   const [error, setError] = useState('')
 
@@ -988,8 +1315,8 @@ function LoginPage({ onLogin }) {
 
   return (
     <section className="login-page">
-      <h2>Login Admin</h2>
-      <p>Acesso restrito para Admin e Pedidos.</p>
+      <h2>{title}</h2>
+      <p>{subtitle}</p>
       <form onSubmit={handleSubmit} className="login-form">
         <input
           name="username"
@@ -1014,9 +1341,14 @@ function LoginPage({ onLogin }) {
 function OrderPanel({
   className,
   cart,
-  mesaValida,
-  mesa,
+  hasTable,
+  tableNumber,
   isDelivery,
+  isWaiterTable = false,
+  waiterStaffName = '',
+  onWaiterStaffNameChange,
+  tableCustomerName = '',
+  onTableCustomerNameChange,
   deliveryInfo,
   onDeliveryFieldChange,
   deliveryFieldErrors,
@@ -1042,6 +1374,7 @@ function OrderPanel({
   const referenceId = onClose ? 'delivery-reference-mobile' : 'delivery-reference'
   const paymentMethodId = onClose ? 'delivery-payment-mobile' : 'delivery-payment'
   const paymentChangeId = onClose ? 'delivery-change-mobile' : 'delivery-change'
+  const tableNameId = onClose ? 'table-customer-name-mobile' : 'table-customer-name'
   return (
     <aside className={className}>
       <div className="order-panel-head">
@@ -1096,7 +1429,43 @@ function OrderPanel({
         ))}
 
         <footer className="order-panel-footer">
-          {mesaValida && <p className="mesa-total">Pedido da mesa #{mesa}</p>}
+          {isWaiterTable && hasTable && (
+            <div className="waiter-table-fields">
+              <p className="delivery-fields-title">Mesa no salão</p>
+              <p className="mesa-total">Mesa #{tableNumber}</p>
+              <label className="observation-label" htmlFor="waiter-staff-name">
+                Seu nome (garçom) <span className="required-mark">*</span>
+              </label>
+              <input
+                id="waiter-staff-name"
+                name="waiterStaffName"
+                type="text"
+                className="delivery-input"
+                autoComplete="name"
+                required
+                value={waiterStaffName}
+                onChange={(event) => onWaiterStaffNameChange?.(event.target.value)}
+                placeholder="Ex.: Maria"
+              />
+              <label className="observation-label" htmlFor={tableNameId}>
+                Nome do cliente <span className="required-mark">*</span>
+              </label>
+              <input
+                id={tableNameId}
+                name="tableCustomerName"
+                type="text"
+                className="delivery-input"
+                autoComplete="name"
+                required
+                value={tableCustomerName}
+                onChange={(event) => onTableCustomerNameChange?.(event.target.value)}
+                placeholder="Nome na mesa"
+              />
+            </div>
+          )}
+          {hasTable && !isWaiterTable && (
+            <p className="mesa-total">Pedido da mesa #{tableNumber}</p>
+          )}
           {isDelivery && (
             <div className="delivery-fields">
               <p className="delivery-fields-title">Entrega (delivery)</p>
@@ -1496,12 +1865,27 @@ function MenuItemCard({
   )
 }
 
-function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DELIVERY_SETTINGS }) {
+function HomePage({
+  menuItems,
+  tables,
+  categories,
+  deliverySettings = DEFAULT_DELIVERY_SETTINGS,
+  catalogMode = 'public',
+  waiterSession = null,
+  onWaiterSessionUpdate,
+}) {
   const location = useLocation()
   const { categoryId, subcategoryId } = useParams()
   const splashPhase = useContext(CatalogSplashContext)
+  const isWaiter = catalogMode === 'waiter'
   const [cart, setCart] = useState([])
   const [observation, setObservation] = useState('')
+  const [tableCustomerName, setTableCustomerName] = useState(
+    () => waiterSession?.customerName || '',
+  )
+  const [waiterStaffName, setWaiterStaffName] = useState(
+    () => waiterSession?.waiterName || '',
+  )
   const [deliveryInfo, setDeliveryInfo] = useState(() => loadDeliveryInfoFromSession())
   const [deliveryFieldError, setDeliveryFieldError] = useState('')
   const fixedDeliveryFee = Math.max(0, Number(deliverySettings.deliveryFee) || 0)
@@ -1522,14 +1906,27 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     () => new URLSearchParams(location.search),
     [location.search],
   )
-  const mesa = resolveActiveTableNumber(searchParams)
-  const mesaIdentificada = mesa !== null
-  const mesaCadastrada = mesaIdentificada && tables.includes(mesa)
-  const isDelivery = !mesaIdentificada
+  const tableFromUrl = resolveActiveTableNumber(searchParams)
+  const tableNumber = isWaiter ? (waiterSession?.tableNumber ?? null) : tableFromUrl
+  const hasTableNumber = tableNumber !== null
+  const isRegisteredTable = hasTableNumber && tables.includes(tableNumber)
+  const isDelivery = !isWaiter && !hasTableNumber
 
   useEffect(() => {
-    if (mesa) persistTableNumber(mesa)
-  }, [mesa])
+    if (!isWaiter && tableNumber) persistTableNumber(tableNumber)
+  }, [isWaiter, tableNumber])
+
+  useEffect(() => {
+    if (isWaiter && waiterSession?.customerName) {
+      setTableCustomerName(waiterSession.customerName)
+    }
+  }, [isWaiter, waiterSession?.customerName])
+
+  useEffect(() => {
+    if (isWaiter && waiterSession?.waiterName) {
+      setWaiterStaffName(waiterSession.waiterName)
+    }
+  }, [isWaiter, waiterSession?.waiterName])
 
   const activeCategory = resolveActiveCategory(categories, categoryId || categories[0]?.id)
   const activeSubcategory = resolveActiveSubcategory(
@@ -1674,14 +2071,40 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
       saveDeliveryInfoToSession(deliveryInfo)
     }
 
+    if (isWaiter) {
+      const clientName = tableCustomerName.trim()
+      const staffName = String(waiterStaffName || '').trim()
+      if (!hasTableNumber) {
+        setOrderMessage('Informe a mesa antes de enviar.')
+        return
+      }
+      if (staffName.length < 2) {
+        setOrderMessage('Informe seu nome (garçom).')
+        return
+      }
+      if (clientName.length < 2) {
+        setOrderMessage('Informe o nome do cliente.')
+        return
+      }
+      saveWaiterSession({
+        tableNumber,
+        customerName: clientName,
+        waiterName: staffName,
+      })
+      onWaiterSessionUpdate?.()
+    }
+
     setIsSubmittingOrder(true)
     setOrderMessage('')
     setDeliveryFieldError('')
 
     const orderPayload = {
-      mesa: mesaIdentificada ? mesa : null,
+      mesa: hasTableNumber ? tableNumber : null,
       orderType: isDelivery ? 'delivery' : 'table',
-      customerName: deliveryData?.customerName || '',
+      customerName: isWaiter
+        ? tableCustomerName.trim()
+        : deliveryData?.customerName || '',
+      waiterName: isWaiter ? String(waiterStaffName || '').trim() : '',
       customerPhone: deliveryData?.customerPhone || '',
       deliveryAddress: deliveryData?.deliveryAddress || '',
       deliveryReference: deliveryData?.deliveryReference || '',
@@ -1749,6 +2172,7 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
         mesa: createdOrder.tableNumber,
         orderType: createdOrder.orderType || orderPayload.orderType,
         customerName: createdOrder.customerName || '',
+        waiterName: createdOrder.waiterName || '',
         customerPhone: createdOrder.customerPhone || '',
         deliveryAddress: createdOrder.deliveryAddress || '',
         deliveryReference: createdOrder.deliveryReference || '',
@@ -1784,16 +2208,39 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
     const hasSubs = (category?.subcategories || []).length > 0
     if (hasSubs) {
       const sub = nextSubcategoryId || 'todas'
-      return catalogPathWithMesa(`/categoria/${nextCategoryId}/${sub}`, mesa)
+      const path = `/categoria/${nextCategoryId}/${sub}`
+      return isWaiter ? garcomCatalogPath(path) : catalogPathWithTable(path, tableNumber)
     }
-    return catalogPathWithMesa(`/categoria/${nextCategoryId}`, mesa)
+    const path = `/categoria/${nextCategoryId}`
+    return isWaiter ? garcomCatalogPath(path) : catalogPathWithTable(path, tableNumber)
+  }
+
+  const handleTableCustomerNameChange = (value) => {
+    setTableCustomerName(value)
+    if (isWaiter && hasTableNumber) {
+      saveWaiterSession({ tableNumber, customerName: value })
+      onWaiterSessionUpdate?.()
+    }
+  }
+
+  const handleWaiterStaffNameChange = (value) => {
+    setWaiterStaffName(value)
+    if (isWaiter && hasTableNumber) {
+      saveWaiterSession({ tableNumber, waiterName: value })
+      onWaiterSessionUpdate?.()
+    }
   }
 
   const orderPanelProps = {
     cart,
-    mesaValida: mesaIdentificada,
-    mesa,
+    hasTable: hasTableNumber,
+    tableNumber,
     isDelivery,
+    isWaiterTable: isWaiter,
+    waiterStaffName,
+    onWaiterStaffNameChange: handleWaiterStaffNameChange,
+    tableCustomerName,
+    onTableCustomerNameChange: handleTableCustomerNameChange,
     deliveryInfo,
     onDeliveryFieldChange: handleDeliveryFieldChange,
     deliveryFieldErrors,
@@ -1870,7 +2317,11 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
       className={`home-page${splashPhase === 'visible' ? ' home-page--splash-pending' : ''}`}
       aria-hidden={splashPhase === 'visible'}
     >
-      <p className="home-intro">Escolha seus itens e monte seu pedido</p>
+      <p className="home-intro">
+        {isWaiter
+          ? 'Monte o pedido da mesa — itens vão direto para a cozinha'
+          : 'Escolha seus itens e monte seu pedido'}
+      </p>
       <p className="catalog-images-disclaimer catalog-images-disclaimer--global" role="note">
         <span className="catalog-images-disclaimer-label">Imagens ilustrativas</span>
         As fotos dos produtos são meramente ilustrativas e podem variar do item servido.
@@ -1913,11 +2364,20 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
           </div>
         )}
         <div className={`table-banner${isDelivery ? ' table-banner--delivery' : ''}`}>
-          {mesaIdentificada ? (
+          {isWaiter && hasTableNumber ? (
             <>
-              <strong>Mesa #{mesa}</strong>
+              <strong>Mesa #{tableNumber}</strong>
               <span className="table-banner-msg">
-                {mesaCadastrada
+                Garçom: {waiterSession?.waiterName || '—'}
+                {' · '}
+                Cliente: {tableCustomerName || '—'}
+              </span>
+            </>
+          ) : hasTableNumber ? (
+            <>
+              <strong>Mesa #{tableNumber}</strong>
+              <span className="table-banner-msg">
+                {isRegisteredTable
                   ? 'Pedido identificado automaticamente.'
                   : 'Mesa do QR reconhecida. Cadastre esta mesa no admin se ainda não existir.'}
               </span>
@@ -1993,6 +2453,56 @@ function HomePage({ menuItems, tables, categories, deliverySettings = DEFAULT_DE
 
 const REPORT_ORDERS_PAGE_SIZE = 15
 
+function summarizeWaiterSales(orders) {
+  const totals = new Map()
+  for (const order of orders) {
+    if (isDeliveryOrder(order.tableNumber, order.orderType)) continue
+    const name = String(order.waiterName || '').trim() || 'Sem garçom'
+    const prev = totals.get(name) || { orderCount: 0, salesTotal: 0 }
+    totals.set(name, {
+      orderCount: prev.orderCount + 1,
+      salesTotal: prev.salesTotal + (Number(order.totalAmount) || 0),
+    })
+  }
+  return [...totals.entries()]
+    .map(([name, stats]) => ({ name, ...stats }))
+    .sort((a, b) => b.salesTotal - a.salesTotal || b.orderCount - a.orderCount)
+}
+
+function WaiterSalesSummary({ orders }) {
+  const rows = useMemo(() => summarizeWaiterSales(orders), [orders])
+  if (!rows.length) return null
+
+  return (
+    <section className="report-table-block report-table-block--waiters">
+      <h3 className="report-table-title">Vendas por garçom (mesas)</h3>
+      <p className="report-waiters-hint">
+        Pedidos feitos pelo acesso Garçom no salão. Delivery não entra neste resumo.
+      </p>
+      <div className="report-table-wrap">
+        <table className="report-table">
+          <thead>
+            <tr>
+              <th>Garçom</th>
+              <th className="report-table-num">Pedidos</th>
+              <th className="report-table-num">Total vendido</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.name}>
+                <td>{row.name}</td>
+                <td className="report-table-num">{row.orderCount}</td>
+                <td className="report-table-num">{formatOrderMoney(row.salesTotal)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
 function OrdersReportTable({ title, orders, emptyMessage, variant = 'default' }) {
   const [page, setPage] = useState(1)
 
@@ -2026,6 +2536,8 @@ function OrdersReportTable({ title, orders, emptyMessage, variant = 'default' })
               <th>Pedido</th>
               <th>Data</th>
               <th>Mesa</th>
+              <th>Garçom</th>
+              <th>Cliente</th>
               <th>Status</th>
               <th className="report-table-num">Valor</th>
             </tr>
@@ -2037,16 +2549,15 @@ function OrdersReportTable({ title, orders, emptyMessage, variant = 'default' })
                 <td>{formatOrderDateTime(order.createdAt)}</td>
                 <td>
                   {isDeliveryOrder(order.tableNumber, order.orderType) ? (
-                    <span className="report-delivery-cell">
-                      Delivery
-                      {order.customerName ? ` · ${order.customerName}` : ''}
-                    </span>
+                    <span className="report-delivery-cell">Delivery</span>
                   ) : order.tableNumber ? (
                     `Mesa ${order.tableNumber}`
                   ) : (
                     '—'
                   )}
                 </td>
+                <td>{order.waiterName?.trim() || '—'}</td>
+                <td>{order.customerName?.trim() || '—'}</td>
                 <td>
                   <span className={`orders-status-badge ${orderStatusBadgeClass(order.status)}`}>
                     {orderStatusLabel(order.status)}
@@ -2186,6 +2697,10 @@ function ReportsPage() {
           </article>
         </div>
       )}
+
+      {report?.soldOrders?.length ? (
+        <WaiterSalesSummary orders={report.soldOrders} />
+      ) : null}
 
       {report && (
         <>
@@ -2767,7 +3282,11 @@ function OrdersPage() {
                       {isDeliveryOrder(order.tableNumber, order.orderType)
                         ? 'Delivery'
                         : order.tableNumber
-                          ? `Mesa ${order.tableNumber}`
+                          ? `Mesa ${order.tableNumber}${
+                              order.waiterName ? ` · Garçom ${order.waiterName}` : ''
+                            }${
+                              order.customerName ? ` · ${order.customerName}` : ''
+                            }`
                           : 'Sem mesa'}
                     </p>
                   </div>
@@ -2794,6 +3313,22 @@ function OrdersPage() {
                     }}
                     onCancel={() => setEditingOrderId(null)}
                   />
+                ) : null}
+                {!isDeliveryOrder(order.tableNumber, order.orderType) &&
+                (order.customerName || order.waiterName) ? (
+                  <p className="orders-card-delivery">
+                    {order.waiterName ? (
+                      <>
+                        <strong>Garçom:</strong> {order.waiterName}
+                        {order.customerName ? ' · ' : ''}
+                      </>
+                    ) : null}
+                    {order.customerName ? (
+                      <>
+                        <strong>Cliente na mesa:</strong> {order.customerName}
+                      </>
+                    ) : null}
+                  </p>
                 ) : null}
                 {isDeliveryOrder(order.tableNumber, order.orderType) ? (
                   <div className="orders-card-delivery">
@@ -2909,11 +3444,11 @@ function QrCodesPage({ tables }) {
       <p>Imprima e cole um QR em cada mesa ativa.</p>
 
       <div className="qr-grid">
-        {tables.map((mesa) => {
-          const url = `${baseUrl}/?mesa=${mesa}`
+        {tables.map((tableNum) => {
+          const url = `${baseUrl}/?mesa=${tableNum}`
           return (
-            <article key={mesa} className="qr-card">
-              <h3>Mesa {mesa}</h3>
+            <article key={tableNum} className="qr-card">
+              <h3>Mesa {tableNum}</h3>
               <QRCodeSVG value={url} size={140} />
               <a href={url} target="_blank" rel="noreferrer">
                 Abrir link da mesa
@@ -3353,12 +3888,12 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 
   const updateSubcategoryMinOrderQty = (categoryId, subId, rawValue) => {
     const minOrderQty = parseCategoryMinOrderInput(rawValue)
-    setCategories(
-      categories.map((category) => {
+    setCategories((current) =>
+      current.map((category) => {
         if (category.id !== categoryId) return category
         return {
           ...category,
-          subcategories: category.subcategories.map((sub) =>
+          subcategories: getCategorySubcategories(category).map((sub) =>
             sub.id === subId ? { ...sub, minOrderQty } : sub,
           ),
         }
@@ -3439,23 +3974,31 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       return
     }
 
-    const category = categories.find((item) => item.id === categoryId)
-    if (!category) return
-
     let subId = slugify(label)
-    if (category.subcategories.some((sub) => sub.id === subId)) {
-      subId = `${subId}-${Date.now()}`
+    if (!subId || subId === 'categoria') {
+      subId = `sub-${Date.now()}`
     }
 
-    setCategories(
-      categories.map((item) => {
+    setCategories((current) => {
+      const category = current.find((item) => item.id === categoryId)
+      if (!category) return current
+
+      const existingSubs = getCategorySubcategories(category)
+      if (existingSubs.some((sub) => sub.id === subId)) {
+        subId = `${subId}-${Date.now()}`
+      }
+
+      return current.map((item) => {
         if (item.id !== categoryId) return item
         return {
           ...item,
-          subcategories: [...item.subcategories, { id: subId, label, minOrderQty: 1 }],
+          subcategories: [
+            ...getCategorySubcategories(item),
+            { id: subId, label, minOrderQty: 1 },
+          ],
         }
-      }),
-    )
+      })
+    })
     setOpenCategoryId(categoryId)
     setOpenSubcategoryKey(subcategoryPanelKey(categoryId, subId))
     setNewSubLabelByCategory((current) => ({ ...current, [categoryId]: '' }))
@@ -3467,12 +4010,12 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
   }
 
   const updateSubcategoryLabel = (categoryId, subId, label) => {
-    setCategories(
-      categories.map((category) => {
+    setCategories((current) =>
+      current.map((category) => {
         if (category.id !== categoryId) return category
         return {
           ...category,
-          subcategories: category.subcategories.map((sub) =>
+          subcategories: getCategorySubcategories(category).map((sub) =>
             sub.id === subId ? { ...sub, label } : sub,
           ),
         }
@@ -3481,12 +4024,12 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
   }
 
   const removeSubcategory = (categoryId, subId) => {
-    setCategories(
-      categories.map((category) => {
+    setCategories((current) =>
+      current.map((category) => {
         if (category.id !== categoryId) return category
         return {
           ...category,
-          subcategories: category.subcategories.filter((sub) => sub.id !== subId),
+          subcategories: getCategorySubcategories(category).filter((sub) => sub.id !== subId),
         }
       }),
     )
@@ -3498,7 +4041,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
         if (category.id !== categoryId) return category
         return {
           ...category,
-          subcategories: category.subcategories.map((sub) =>
+          subcategories: getCategorySubcategories(category).map((sub) =>
             sub.id === subId
               ? { ...sub, minOrderQty: commitCategoryMinOrderInput(sub.minOrderQty) }
               : sub,
@@ -3579,7 +4122,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
       <div className="category-accordion">
         {categories.map((category) => {
           const isOpen = openCategoryId === category.id
-          const subCount = category.subcategories.length
+          const subCount = getCategorySubcategories(category).length
           const categoryMin = commitCategoryMinOrderInput(category.minOrderQty)
 
           return (
@@ -3648,13 +4191,13 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 
                 <div className="subcategory-admin-block">
                   <h4 className="subcategory-admin-title">Subcategorias</h4>
-                  {category.subcategories.length === 0 && (
+                  {getCategorySubcategories(category).length === 0 && (
                     <p className="subcategory-admin-empty">
                       Nenhuma subcategoria. Adicione abaixo se precisar (ex: Doces, Premium).
                     </p>
                   )}
                   <div className="subcategory-accordion">
-                    {category.subcategories.map((sub) => {
+                    {getCategorySubcategories(category).map((sub) => {
                       const subKey = subcategoryPanelKey(category.id, sub.id)
                       const subOpen = openSubcategoryKey === subKey
                       return (
@@ -4835,7 +5378,7 @@ function AdminPage({
           <div role="tabpanel" className="admin-tab-panel">
             <CategoriesAdmin
               categories={categories}
-              setCategories={setCategories}
+              setCategories={setCategoriesFromAdmin}
               saveCategories={saveCategories}
             />
           </div>

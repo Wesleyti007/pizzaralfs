@@ -16,6 +16,7 @@ import {
 } from './serveMenuImage.js'
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
 import { validateOrderItemsMinQty } from './minOrderQty.js'
+import { ensureOrderSchema } from './ensureSchema.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes,
   min_order_qty, image_base64 AS image, is_active`
@@ -388,6 +389,7 @@ const ORDER_RETURNING = `id, table_number AS "tableNumber", order_type AS "order
   delivery_reference AS "deliveryReference", delivery_distance_km AS "deliveryDistanceKm",
   items_subtotal AS "itemsSubtotal", delivery_fee AS "deliveryFee",
   payment_method AS "paymentMethod", payment_change_for AS "paymentChangeFor",
+  waiter_name AS "waiterName",
   observation, total_amount AS "totalAmount", status, created_at AS "createdAt"`
 
 const ALLOWED_PAYMENT_METHODS = new Set(['pix', 'cash', 'credit', 'debit'])
@@ -482,7 +484,10 @@ app.post('/orders', async (req, res) => {
     return res.status(400).json({ message: 'Informe o numero da mesa' })
   }
 
-  let customerName = ''
+  let customerName =
+    orderType === 'table' ? String(req.body.customerName ?? '').trim() : ''
+  let waiterName =
+    orderType === 'table' ? String(req.body.waiterName ?? '').trim() : ''
   let customerPhone = ''
   let customerCep = ''
   let deliveryAddress = ''
@@ -568,9 +573,9 @@ app.post('/orders', async (req, res) => {
          table_number, order_type, customer_name, customer_phone, customer_cep,
          delivery_address, delivery_reference, delivery_distance_km,
          items_subtotal, delivery_fee, payment_method, payment_change_for,
-         observation, total_amount
+         waiter_name, observation, total_amount
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING ${ORDER_RETURNING}`,
       [
         orderType === 'table' ? tableNumber : null,
@@ -585,6 +590,7 @@ app.post('/orders', async (req, res) => {
         resolvedDeliveryFee,
         paymentMethod,
         paymentChangeFor,
+        waiterName,
         observation ?? '',
         totalAmount,
       ],
@@ -865,7 +871,17 @@ if (process.env.NODE_ENV === 'production') {
   })
 }
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API PizzaRalfs rodando em http://localhost:${PORT}`)
-})
+async function startServer() {
+  try {
+    await ensureOrderSchema()
+  } catch (error) {
+    console.error('Aviso: nao foi possivel aplicar patches de schema:', error.message)
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`API PizzaRalfs rodando em http://localhost:${PORT}`)
+  })
+}
+
+startServer()
 

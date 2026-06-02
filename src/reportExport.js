@@ -2,11 +2,13 @@ import * as XLSX from 'xlsx'
 import { formatOrderDateTime, orderStatusLabel } from './orders.js'
 
 function orderSheetRows(orders) {
-  const header = ['Pedido', 'Data', 'Mesa', 'Status', 'Valor (R$)', 'Observação']
+  const header = ['Pedido', 'Data', 'Mesa', 'Garçom', 'Cliente', 'Status', 'Valor (R$)', 'Observação']
   const rows = orders.map((order) => [
     order.id,
     formatOrderDateTime(order.createdAt),
     order.tableNumber ?? '',
+    order.waiterName?.trim() || '',
+    order.customerName?.trim() || '',
     orderStatusLabel(order.status),
     Number(order.totalAmount) || 0,
     order.observation?.trim() || '',

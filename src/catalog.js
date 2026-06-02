@@ -1,4 +1,4 @@
-export const MESA_SESSION_KEY = 'pizza-ralfs-active-mesa'
+export const TABLE_SESSION_KEY = 'pizza-ralfs-active-mesa'
 
 /** Item tem imagem exibível no cardápio. */
 export function hasMenuItemImage(imageOrItem) {
@@ -16,14 +16,14 @@ export function parseTableNumber(raw) {
   return parsed
 }
 
-export function persistTableNumber(mesa) {
-  if (mesa) {
-    sessionStorage.setItem(MESA_SESSION_KEY, String(mesa))
+export function persistTableNumber(tableNumber) {
+  if (tableNumber) {
+    sessionStorage.setItem(TABLE_SESSION_KEY, String(tableNumber))
   }
 }
 
 export function clearTableNumberSession() {
-  sessionStorage.removeItem(MESA_SESSION_KEY)
+  sessionStorage.removeItem(TABLE_SESSION_KEY)
 }
 
 /**
@@ -40,14 +40,56 @@ export function resolveActiveTableNumber(searchParams) {
   return null
 }
 
-export function catalogPathWithMesa(pathname, mesa) {
+export function catalogPathWithTable(pathname, tableNumber) {
   const base = pathname.startsWith('/') ? pathname : `/${pathname}`
-  if (!mesa) return base
+  if (!tableNumber) return base
   const [path, query = ''] = base.split('?')
   const params = new URLSearchParams(query)
-  params.set('mesa', String(mesa))
+  params.set('mesa', String(tableNumber))
   const qs = params.toString()
   return qs ? `${path}?${qs}` : path
+}
+
+export const WAITER_TABLE_KEY = 'pizza-ralfs-waiter-mesa'
+export const WAITER_CUSTOMER_NAME_KEY = 'pizza-ralfs-waiter-nome'
+export const WAITER_NAME_KEY = 'pizza-ralfs-waiter-staff'
+
+export function loadWaiterSession() {
+  return {
+    tableNumber: parseTableNumber(sessionStorage.getItem(WAITER_TABLE_KEY)),
+    customerName: String(sessionStorage.getItem(WAITER_CUSTOMER_NAME_KEY) ?? '').trim(),
+    waiterName: String(sessionStorage.getItem(WAITER_NAME_KEY) ?? '').trim(),
+  }
+}
+
+export function saveWaiterSession({ tableNumber, customerName, waiterName } = {}) {
+  if (tableNumber !== undefined && tableNumber !== null) {
+    sessionStorage.setItem(WAITER_TABLE_KEY, String(tableNumber))
+  }
+  if (customerName !== undefined) {
+    sessionStorage.setItem(WAITER_CUSTOMER_NAME_KEY, String(customerName).trim())
+  }
+  if (waiterName !== undefined) {
+    sessionStorage.setItem(WAITER_NAME_KEY, String(waiterName).trim())
+  }
+}
+
+/** Limpa mesa/cliente ao trocar mesa; mantém nome do garçom. */
+export function clearWaiterTableSession() {
+  sessionStorage.removeItem(WAITER_TABLE_KEY)
+  sessionStorage.removeItem(WAITER_CUSTOMER_NAME_KEY)
+}
+
+export function clearWaiterSession() {
+  clearWaiterTableSession()
+  sessionStorage.removeItem(WAITER_NAME_KEY)
+}
+
+/** Garçom routes — table is stored in session, not in the URL. */
+export function garcomCatalogPath(pathname) {
+  const segment = pathname.startsWith('/') ? pathname : `/${pathname}`
+  if (segment === '/' || segment === '') return '/garcom'
+  return `/garcom${segment}`
 }
 
 export const DEFAULT_CATEGORIES = [
@@ -96,6 +138,10 @@ export function slugify(text) {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') || 'categoria'
   )
+}
+
+export function getCategorySubcategories(category) {
+  return Array.isArray(category?.subcategories) ? category.subcategories : []
 }
 
 export function normalizeCategories(raw) {

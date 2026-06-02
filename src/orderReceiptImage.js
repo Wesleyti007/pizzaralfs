@@ -63,8 +63,16 @@ function buildReceiptLines(order) {
       })
     }
   } else {
-    const mesa = order.mesa ?? order.tableNumber
-    lines.push({ text: mesa ? `Mesa ${mesa}` : 'Mesa não identificada' })
+    const tableNumber = order.mesa ?? order.tableNumber
+    lines.push({
+      text: tableNumber ? `Mesa ${tableNumber}` : 'Mesa não identificada',
+    })
+    if (order.waiterName) {
+      lines.push({ text: `Garçom: ${order.waiterName}` })
+    }
+    if (order.customerName) {
+      lines.push({ text: `Cliente: ${order.customerName}` })
+    }
   }
 
   lines.push(

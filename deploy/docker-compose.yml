@@ -23,6 +23,8 @@ services:
       args:
         VITE_ADMIN_USER: ${ADMIN_USER:-admin}
         VITE_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-25364758@Cd}
+        VITE_WAITER_USER: ${WAITER_USER:-garcom}
+        VITE_WAITER_PASSWORD: ${WAITER_PASSWORD:-ralfsgarcom@26}
         APP_RELEASE: ${APP_RELEASE:-dev}
     restart: unless-stopped
     environment:

@@ -66,8 +66,18 @@ function buildDestinationHtml(order) {
     return buildDeliveryBlockHtml(order, { canhoto: false })
   }
 
-  const mesa = order.tableNumber ? `Mesa ${order.tableNumber}` : 'Mesa nao identificada'
-  return `<div class="print-block print-block--mesa"><p class="print-line print-mesa">${escapeHtml(mesa)}</p></div>`
+  const tableLabel = order.tableNumber
+    ? `Mesa ${order.tableNumber}`
+    : 'Mesa nao identificada'
+  const customerName = String(order.customerName || '').trim()
+  const waiterName = String(order.waiterName || '').trim()
+  const waiterLine = waiterName
+    ? `<p class="print-line print-mesa">Garcom: ${escapeHtml(waiterName)}</p>`
+    : ''
+  const customerLine = customerName
+    ? `<p class="print-line print-mesa">Cliente: ${escapeHtml(customerName)}</p>`
+    : ''
+  return `<div class="print-block print-block--mesa"><p class="print-line print-mesa">${escapeHtml(tableLabel)}</p>${waiterLine}${customerLine}</div>`
 }
 
 function buildTotalsHtml(order) {

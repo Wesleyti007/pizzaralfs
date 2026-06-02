@@ -2470,6 +2470,46 @@ body.home-splash-active .brand-header {
   padding: 10px;
 }
 
+.waiter-setup-form {
+  margin-top: 16px;
+}
+
+.waiter-setup-field {
+  display: grid;
+  gap: 6px;
+}
+
+.waiter-setup-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--brand-text-muted);
+}
+
+.waiter-setup-field select,
+.waiter-setup-field input {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 1rem;
+}
+
+.waiter-table-fields {
+  margin-bottom: 10px;
+}
+
+.brand-header-mesa-pill {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--brand-gold-light);
+  padding: 4px 8px;
+  border: 1px solid rgba(212, 168, 75, 0.45);
+  border-radius: 999px;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .login-form button {
   background: #16a34a;
   color: #fff;
@@ -4307,6 +4347,16 @@ body.home-splash-active .brand-header {
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--brand-red);
+}
+
+.report-table-block--waiters {
+  margin-bottom: 20px;
+}
+
+.report-waiters-hint {
+  margin: -4px 0 12px;
+  font-size: 0.85rem;
+  color: var(--brand-text-muted);
 }
 
 .report-table-block {
