@@ -1378,6 +1378,36 @@ body.home-splash-active .brand-header {
   gap: 8px;
 }
 
+.item-options {
+  margin: 10px 0 8px;
+}
+
+.item-options .pizza-sizes-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.item-option-btn {
+  min-height: 2.5rem;
+}
+
+.admin-options-textarea {
+  width: 100%;
+  min-height: 6rem;
+  padding: 10px 12px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  resize: vertical;
+}
+
+.admin-item-options {
+  margin: 6px 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--brand-text-muted);
+}
+
 .pizza-size-btn {
   display: grid;
   gap: 2px;
@@ -1631,10 +1661,47 @@ body.home-splash-active .brand-header {
 .basket-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
   border-top: 1px dashed #e5e7eb;
   padding-top: 10px;
   margin-top: 10px;
+}
+
+.basket-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.basket-item-price {
+  display: block;
+  margin-top: 2px;
+}
+
+.basket-item-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.basket-item-remove {
+  background: transparent !important;
+  color: var(--brand-red) !important;
+  border: 1px solid rgba(139, 30, 30, 0.35) !important;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  width: auto !important;
+  min-height: 30px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.basket-item-remove:hover {
+  background: rgba(139, 30, 30, 0.06) !important;
 }
 
 .basket footer,
@@ -3669,13 +3736,26 @@ body.home-splash-active .brand-header {
     padding-top: 12px;
   }
 
-  .basket-item > div:first-child {
+  .basket-item-info {
     width: 100%;
+  }
+
+  .basket-item-actions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .basket-item-remove {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 0.9rem;
   }
 
   .qty {
     margin-left: 0;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
 
   .basket .qty button {

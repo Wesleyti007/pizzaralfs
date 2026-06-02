@@ -411,6 +411,55 @@ export function itemHasSizes(item) {
   return isPizzaCategory(item?.category) && Array.isArray(item?.sizes) && item.sizes.length > 0
 }
 
+export function normalizeMenuItemOptionsList(raw) {
+  let list = raw
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      list = []
+    }
+  }
+  if (!Array.isArray(list)) return []
+
+  const options = []
+  const seen = new Set()
+  for (const [index, entry] of list.entries()) {
+    const label = String(entry?.label ?? entry ?? '').trim()
+    if (!label) continue
+    let id = String(entry?.id ?? '').trim() || slugifyOptionId(label, index)
+    if (seen.has(id)) id = `${id}-${index + 1}`
+    seen.add(id)
+    options.push({ id, label })
+  }
+  return options
+}
+
+function slugifyOptionId(label, index = 0) {
+  const base = slugify(label)
+  return base || `opcao-${index + 1}`
+}
+
+export function itemHasOptions(item) {
+  return !itemHasSizes(item) && Array.isArray(item?.options) && item.options.length > 0
+}
+
+export function parseOptionsFromText(text) {
+  const lines = String(text || '').split(/\r?\n/)
+  return normalizeMenuItemOptionsList(lines)
+}
+
+export function formatOptionsForInput(options) {
+  return (options || []).map((entry) => entry.label).join('\n')
+}
+
+export function normalizeMenuItemOptions(item) {
+  if (isPizzaCategory(item.category)) {
+    return { ...item, options: [] }
+  }
+  return { ...item, options: normalizeMenuItemOptionsList(item.options) }
+}
+
 /** Subcategorias tratadas como pizza doce nos combos de sabores. */
 export const PIZZA_SWEET_SUBCATEGORY_IDS = new Set(['doces'])
 

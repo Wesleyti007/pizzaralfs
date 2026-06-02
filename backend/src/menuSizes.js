@@ -41,6 +41,41 @@ export function normalizeMinOrderQty(value) {
   return Math.min(99, parsed)
 }
 
+function slugifyOptionId(label, index = 0) {
+  const base = String(label || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return base || `opcao-${index + 1}`
+}
+
+export function normalizeMenuItemOptionsList(raw) {
+  let list = raw
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      list = []
+    }
+  }
+  if (!Array.isArray(list)) return []
+
+  const options = []
+  const seen = new Set()
+  for (const [index, entry] of list.entries()) {
+    const label = String(entry?.label ?? entry ?? '').trim()
+    if (!label) continue
+    let id = String(entry?.id ?? '').trim() || slugifyOptionId(label, index)
+    if (seen.has(id)) id = `${id}-${index + 1}`
+    seen.add(id)
+    options.push({ id, label })
+  }
+  return options
+}
+
 export function normalizeMenuItemRow(row) {
   const category = row.category || 'pizzas'
   const basePrice = Number(row.price) || 0
@@ -65,6 +100,7 @@ export function normalizeMenuItemRow(row) {
       : basePrice
 
   const deliveryPrice = Number(row.delivery_price)
+  const options = isPizzaCategory(category) ? [] : normalizeMenuItemOptionsList(row.options)
   const item = {
     id: row.id,
     category,
@@ -74,6 +110,7 @@ export function normalizeMenuItemRow(row) {
     price,
     image: row.image || '',
     sizes,
+    options,
     minOrderQty: normalizeMinOrderQty(row.min_order_qty ?? row.minOrderQty),
     isActive: row.is_active !== false && row.isActive !== false,
   }
@@ -108,12 +145,15 @@ export function buildMenuItemPayload(body) {
         price,
         image,
         sizes,
+        options: [],
         deliveryPrice: null,
         minOrderQty,
         isActive,
       },
     }
   }
+
+  const options = normalizeMenuItemOptionsList(body.options)
 
   const price = Number(body.price)
   if (!name || Number.isNaN(price) || price <= 0) {
@@ -138,6 +178,7 @@ export function buildMenuItemPayload(body) {
       price,
       image,
       sizes: [],
+      options,
       deliveryPrice,
       minOrderQty,
       isActive,

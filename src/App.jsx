@@ -114,11 +114,15 @@ import {
   hasMenuItemImage,
   isPizzaCategory,
   itemHasSizes,
+  itemHasOptions,
   commitCategoryMinOrderInput,
+  formatOptionsForInput,
   getCategorySubcategories,
   normalizeCategories,
   parseCategoryMinOrderInput,
+  parseOptionsFromText,
   normalizeMenuItemCategories,
+  normalizeMenuItemOptions,
   normalizeMenuItemSizes,
   PIZZA_SIZE_TEMPLATES,
   resolveActiveCategory,
@@ -218,8 +222,15 @@ const defaultMenu = [
     id: 6,
     category: 'bebidas',
     name: 'Refrigerante Lata',
-    description: 'Lata 350ml (sabores variados).',
+    description: 'Lata 350ml — escolha o sabor.',
     price: 6.5,
+    options: [
+      { id: 'coca-cola', label: 'Coca-Cola' },
+      { id: 'guarana', label: 'Guaraná Antarctica' },
+      { id: 'fanta-laranja', label: 'Fanta Laranja' },
+      { id: 'sprite', label: 'Sprite' },
+      { id: 'schweppes', label: 'Schweppes' },
+    ],
     image:
       'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=800&q=80',
   },
@@ -356,6 +367,7 @@ function buildMenuItemApiPayload(item, isActive) {
   if (isPizzaCategory(item.category)) {
     const sizes = Array.isArray(item.sizes) ? item.sizes : []
     payload.sizes = sizes
+    payload.options = []
     const prices = sizes.map((size) => Number(size.price)).filter((n) => Number.isFinite(n) && n > 0)
     payload.price = prices.length ? Math.min(...prices) : Number(item.price) || 0
   } else {
@@ -364,6 +376,7 @@ function buildMenuItemApiPayload(item, isActive) {
     payload.deliveryPrice =
       Number.isFinite(delivery) && delivery > 0 ? delivery : null
     payload.sizes = []
+    payload.options = Array.isArray(item.options) ? item.options : []
   }
 
   return payload
@@ -374,7 +387,7 @@ function normalizeMenuItems(items, categories) {
     const normalized = normalizeMenuItemCategories(item, categories)
     const image = typeof item.image === 'string' ? item.image : ''
     return {
-      ...normalizeMenuItemSizes(normalized),
+      ...normalizeMenuItemOptions(normalizeMenuItemSizes(normalized)),
       id: normalizeItemId(item.id),
       image,
       hasImage: item.hasImage === true || hasMenuItemImage(image),
@@ -1362,6 +1375,7 @@ function OrderPanel({
   orderMessage,
   cartMinOrderMessage,
   changeQuantity,
+  removeFromCart,
   finalizeOrder,
   onClose,
   formatBRL,
@@ -1396,7 +1410,7 @@ function OrderPanel({
 
         {cart.map((item) => (
           <div key={cartLineKey(item)} className="basket-item">
-            <div>
+            <div className="basket-item-info">
               <strong>{item.name}</strong>
               {getCartFlavorIds(item).length > 1 && (
                 <span className="basket-item-half-note">
@@ -1404,25 +1418,37 @@ function OrderPanel({
                 </span>
               )}
               {item.sizeLabel && getCartFlavorIds(item).length <= 1 && (
-                <span className="basket-item-size">{item.sizeLabel}</span>
+                <span className="basket-item-size">
+                  {itemHasOptions(item) ? `Sabor: ${item.sizeLabel}` : item.sizeLabel}
+                </span>
               )}
-              <span>{formatBRL(item.price * item.qty)}</span>
+              <span className="basket-item-price">{formatBRL(item.price * item.qty)}</span>
             </div>
-            <div className="qty">
+            <div className="basket-item-actions">
+              <div className="qty">
+                <button
+                  type="button"
+                  onClick={() => changeQuantity(cartLineKey(item), -1)}
+                  aria-label="Diminuir quantidade"
+                >
+                  -
+                </button>
+                <span>{item.qty}</span>
+                <button
+                  type="button"
+                  onClick={() => changeQuantity(cartLineKey(item), 1)}
+                  aria-label="Aumentar quantidade"
+                >
+                  +
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => changeQuantity(cartLineKey(item), -1)}
-                aria-label="Diminuir quantidade"
+                className="basket-item-remove"
+                onClick={() => removeFromCart(cartLineKey(item))}
+                aria-label={`Remover ${item.name} do pedido`}
               >
-                -
-              </button>
-              <span>{item.qty}</span>
-              <button
-                type="button"
-                onClick={() => changeQuantity(cartLineKey(item), 1)}
-                aria-label="Aumentar quantidade"
-              >
-                +
+                Remover
               </button>
             </div>
           </div>
@@ -1682,8 +1708,12 @@ function MenuItemCard({
   imagePriority = false,
 }) {
   const hasSizes = itemHasSizes(menuItem)
+  const hasOptions = itemHasOptions(menuItem)
   const [selectedSizeId, setSelectedSizeId] = useState(
     () => menuItem.sizes?.[0]?.id || 'broto',
+  )
+  const [selectedOptionId, setSelectedOptionId] = useState(
+    () => menuItem.options?.[0]?.id || '',
   )
   const [selectedFlavorIds, setSelectedFlavorIds] = useState(() => [
     normalizeItemId(menuItem.id),
@@ -1761,6 +1791,23 @@ function MenuItemCard({
   }
 
   const handleAdd = () => {
+    if (hasOptions) {
+      const selectedOption =
+        menuItem.options.find((entry) => entry.id === selectedOptionId) || menuItem.options[0]
+      if (!selectedOption) return
+
+      onAddToCart({
+        ...menuItem,
+        price: unitPrice,
+        sizeId: selectedOption.id,
+        sizeLabel: selectedOption.label,
+        flavorIds: [],
+        secondFlavorId: '',
+        name: menuItem.name,
+      })
+      return
+    }
+
     const sizeLabel = selectedSize
       ? `${selectedSize.label} (${selectedSize.pieces} pedaços)`
       : ''
@@ -1784,7 +1831,8 @@ function MenuItemCard({
     })
   }
 
-  const addDisabled = selectedFlavors.length === 0
+  const addDisabled =
+    (hasOptions && !selectedOptionId) || (hasSizes && selectedFlavors.length === 0)
   const showImage = hasMenuItemImage(menuItem)
   const placeholderStyle = showImage
     ? undefined
@@ -1815,7 +1863,28 @@ function MenuItemCard({
       )}
       <p className="card-description">({menuItem.description})</p>
 
-      {hasSizes ? (
+      {hasOptions ? (
+        <>
+          <div className="item-options">
+            <span className="pizza-sizes-label">Sabor</span>
+            <div className="pizza-sizes-options" role="radiogroup" aria-label="Sabor do refrigerante">
+              {menuItem.options.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selectedOptionId === option.id}
+                  className={`pizza-size-btn item-option-btn${selectedOptionId === option.id ? ' is-active' : ''}`}
+                  onClick={() => setSelectedOptionId(option.id)}
+                >
+                  <span className="pizza-size-btn-label">{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <strong className="card-price card-price--selected">R$ {unitPrice.toFixed(2)}</strong>
+        </>
+      ) : hasSizes ? (
         <>
           <div className="pizza-sizes">
             <span className="pizza-sizes-label">Tamanho</span>
@@ -1968,6 +2037,10 @@ function HomePage({
         })
         .filter((item) => item.qty > 0),
     )
+  }
+
+  const removeFromCart = (lineKey) => {
+    setCart((current) => current.filter((item) => cartLineKey(item) !== lineKey))
   }
 
   const effectiveDeliveryFee = isDelivery ? fixedDeliveryFee : 0
@@ -2254,6 +2327,7 @@ function HomePage({
     orderMessage,
     cartMinOrderMessage,
     changeQuantity,
+    removeFromCart,
     finalizeOrder,
     formatBRL,
     canFinalize,
@@ -3470,6 +3544,7 @@ const emptyItemForm = {
   deliveryPrice: '',
   sizePrices: emptySizePrices(),
   sizeDeliveryPrices: emptySizePrices(),
+  optionsText: '',
   image: '',
   isActive: true,
 }
@@ -3485,6 +3560,7 @@ function buildItemFormFromMenuItem(item) {
     deliveryPrice: hasPizzaSizes ? '' : formatPriceForInput(item.deliveryPrice),
     sizePrices: buildSizePricesFromItem(item),
     sizeDeliveryPrices: buildSizePricesFromItem(item, { delivery: true }),
+    optionsText: formatOptionsForInput(item.options),
     image: item.image || '',
     isActive: item.isActive !== false,
   }
@@ -3640,6 +3716,21 @@ function AdminItemFormFields({
               />
             </div>
             <small className="field-hint">Vazio = mesmo preço do salão.</small>
+          </label>
+          <label className="field-full">
+            <span className="field-label">Sabores / opções (opcional)</span>
+            <textarea
+              name="optionsText"
+              value={form.optionsText}
+              onChange={onChange}
+              placeholder={'Um sabor por linha, ex.:\nCoca-Cola\nGuaraná\nFanta Laranja'}
+              rows={5}
+              className="admin-options-textarea"
+            />
+            <small className="field-hint">
+              Se preencher, o cliente escolhe uma opção antes de adicionar (ex.: sabores de
+              refrigerante).
+            </small>
           </label>
         </div>
       )}
@@ -4462,6 +4553,22 @@ function AdminItemPricing({ item }) {
     )
   }
 
+  if (itemHasOptions(item)) {
+    return (
+      <>
+        <p className="admin-item-price">
+          <span className="admin-item-price-label">Preço</span>
+          <span className="admin-item-price-value">{formatBRL(item.price)}</span>
+        </p>
+        <ul className="admin-item-options">
+          {item.options.map((option) => (
+            <li key={option.id}>{option.label}</li>
+          ))}
+        </ul>
+      </>
+    )
+  }
+
   return (
     <p className="admin-item-price">
       <span className="admin-item-price-label">Preço</span>
@@ -5177,6 +5284,7 @@ function AdminPage({
         payload: {
           ...basePayload,
           sizes,
+          options: [],
           price: Math.min(...sizes.map((size) => size.price)),
         },
       }
@@ -5207,6 +5315,7 @@ function AdminPage({
         price: parsedPrice,
         deliveryPrice,
         sizes: [],
+        options: parseOptionsFromText(form.optionsText),
       },
     }
   }

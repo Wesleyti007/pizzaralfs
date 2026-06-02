@@ -23,6 +23,7 @@ MIGRATIONS=(
   migrate_orders_payment.sql
   migrate_menu_min_order_qty.sql
   migrate_orders_waiter_name.sql
+  migrate_menu_item_options.sql
 )
 
 psql_exec() {
