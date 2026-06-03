@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url'
 import { loadCategoriesFromDb, saveCategoriesToDb } from './categories.js'
 import { loadCatalogSettings, saveCatalogSettings } from './catalogSettings.js'
 import { composeDeliveryAddress, normalizeCepDigits, quoteDeliveryFee, usesKmDeliveryPricing } from './deliveryKm.js'
-import { query } from './db.js'
+import { pool, query } from './db.js'
 import multer from 'multer'
 import { normalizeMenuImageBuffer, normalizeMenuImageString } from './menuImage.js'
 import {
@@ -22,6 +22,8 @@ import {
   createCashClosing,
   listCashClosings,
 } from './cashClosing.js'
+import { postAdminLogin, requireAdmin } from './adminAuth.js'
+import { priceOrderLinesFromDb } from './orderPricing.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options,
   min_order_qty, image_base64 AS image, is_active`
@@ -77,6 +79,18 @@ const PORT = Number(process.env.PORT || 3001)
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 
+app.post('/auth/admin', postAdminLogin)
+app.get('/auth/verify', requireAdmin, (_req, res) => {
+  res.json({ ok: true })
+})
+
+function requireAdminForInactiveMenu(req, res, next) {
+  if (req.query.all === '1') {
+    return requireAdmin(req, res, next)
+  }
+  return next()
+}
+
 app.get('/categories', async (_req, res) => {
   try {
     const categories = await loadCategoriesFromDb(query)
@@ -95,7 +109,7 @@ app.get('/settings', async (_req, res) => {
   }
 })
 
-app.put('/settings', async (req, res) => {
+app.put('/settings', requireAdmin, async (req, res) => {
   try {
     const saved = await saveCatalogSettings(query, req.body)
     return res.json(saved)
@@ -109,7 +123,7 @@ app.get('/delivery/cep/:cep', async (req, res) => { ... })
 app.get('/delivery/quote', async (req, res) => { ... })
 */
 
-app.put('/categories', async (req, res) => {
+app.put('/categories', requireAdmin, async (req, res) => {
   const { categories } = req.body
   if (!Array.isArray(categories)) {
     return res.status(400).json({ message: 'Lista de categorias invalida' })
@@ -123,7 +137,7 @@ app.put('/categories', async (req, res) => {
   }
 })
 
-app.post('/menu-items/process-image', imageUpload.single('image'), async (req, res) => {
+app.post('/menu-items/process-image', requireAdmin, imageUpload.single('image'), async (req, res) => {
   try {
     if (!req.file?.buffer?.length) {
       return res.status(400).json({ message: 'Selecione um arquivo de imagem.' })
@@ -152,7 +166,7 @@ function formatMenuItemForList(row, { includeImages = false } = {}) {
   return { ...rest, hasImage }
 }
 
-app.get('/menu-items', async (req, res) => {
+app.get('/menu-items', requireAdminForInactiveMenu, async (req, res) => {
   try {
     const includeInactive = req.query.all === '1'
     const includeImages = req.query.includeImages === '1'
@@ -211,7 +225,7 @@ app.get('/menu-items/:id/image', async (req, res) => {
   }
 })
 
-app.post('/menu-items', async (req, res) => {
+app.post('/menu-items', requireAdmin, async (req, res) => {
   const built = await buildMenuItemPayloadWithImage(req.body, { forUpdate: false })
   if (built.error) {
     return res.status(400).json({ message: built.error })
@@ -246,7 +260,7 @@ app.post('/menu-items', async (req, res) => {
   }
 })
 
-app.put('/menu-items/:id', async (req, res) => {
+app.put('/menu-items/:id', requireAdmin, async (req, res) => {
   const itemId = Number(req.params.id)
 
   if (!Number.isInteger(itemId)) {
@@ -346,7 +360,7 @@ app.patch('/menu-items/:id/active', async (req, res) => {
   }
 })
 
-app.delete('/menu-items/:id', async (req, res) => {
+app.delete('/menu-items/:id', requireAdmin, async (req, res) => {
   const itemId = Number(req.params.id)
   if (!Number.isInteger(itemId)) {
     return res.status(400).json({ message: 'ID invalido' })
@@ -470,15 +484,33 @@ app.post('/orders', async (req, res) => {
   const { observation, items } = req.body
   const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
   const orderType = resolveOrderType(tableNumber, req.body.orderType)
-  const itemsSubtotal = Number(req.body.itemsSubtotal ?? 0)
-  const deliveryFee = orderType === 'delivery' ? Math.max(0, Number(req.body.deliveryFee ?? 0)) : 0
+  const deliveryFeeInput = orderType === 'delivery' ? Math.max(0, Number(req.body.deliveryFee ?? 0)) : 0
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: 'Pedido precisa ter itens' })
   }
 
+  let itemsSubtotal = 0
+  let pricedLines = []
+
   try {
-    const minQtyCheck = await validateOrderItemsMinQty(query, items)
+    const priced = await priceOrderLinesFromDb(query, items, {
+      forDelivery: orderType === 'delivery',
+    })
+    if (priced.error) {
+      return res.status(400).json({ message: priced.error })
+    }
+    itemsSubtotal = priced.itemsSubtotal
+    pricedLines = priced.lines
+  } catch (pricingError) {
+    return res.status(500).json({
+      message: 'Erro ao calcular precos do pedido',
+      detail: pricingError.message,
+    })
+  }
+
+  try {
+    const minQtyCheck = await validateOrderItemsMinQty(query, pricedLines)
     if (!minQtyCheck.ok) {
       return res.status(400).json({ message: minQtyCheck.message })
     }
@@ -502,7 +534,7 @@ app.post('/orders', async (req, res) => {
   let deliveryAddress = ''
   let deliveryReference = ''
   let deliveryDistanceKm = null
-  let resolvedDeliveryFee = deliveryFee
+  let resolvedDeliveryFee = deliveryFeeInput
   let paymentMethod = ''
   let paymentChangeFor = null
 
@@ -525,7 +557,7 @@ app.post('/orders', async (req, res) => {
       String(req.body.deliveryAddress ?? '').trim() ||
       composeDeliveryAddress(customerPayload)
 
-    const totalAmountPreview = Number(req.body.totalAmount ?? itemsSubtotal + deliveryFee)
+    const totalAmountPreview = itemsSubtotal + deliveryFeeInput
 
     const check = validateDeliveryFields({
       customerName,
@@ -554,7 +586,7 @@ app.post('/orders', async (req, res) => {
         resolvedDeliveryFee = quote.fee
         deliveryDistanceKm = quote.distanceKm
 
-        if (Math.abs(resolvedDeliveryFee - deliveryFee) > 0.02) {
+        if (Math.abs(resolvedDeliveryFee - deliveryFeeInput) > 0.02) {
           return res.status(400).json({
             message: 'Taxa de entrega desatualizada. Atualize o carrinho e tente de novo.',
           })
@@ -565,19 +597,27 @@ app.post('/orders', async (req, res) => {
         })
       }
     } else {
-      resolvedDeliveryFee = Math.max(0, Number(settings.deliveryFee) || 0)
-      if (Math.abs(resolvedDeliveryFee - deliveryFee) > 0.02) {
-        return res.status(400).json({
-          message: 'Taxa de entrega desatualizada. Atualize o carrinho e tente de novo.',
-        })
+      const settingsFee = Math.max(0, Number(settings.deliveryFee) || 0)
+      if (deliveryFeeInput <= 0) {
+        resolvedDeliveryFee = 0
+      } else {
+        resolvedDeliveryFee = settingsFee
+        if (Math.abs(resolvedDeliveryFee - deliveryFeeInput) > 0.02) {
+          return res.status(400).json({
+            message: 'Taxa de entrega desatualizada. Atualize o carrinho e tente de novo.',
+          })
+        }
       }
     }
   }
 
-  const totalAmount = Number(req.body.totalAmount ?? itemsSubtotal + resolvedDeliveryFee)
+  const totalAmount = Math.round((itemsSubtotal + resolvedDeliveryFee) * 100) / 100
 
+  const client = await pool.connect()
   try {
-    const orderResult = await query(
+    await client.query('BEGIN')
+
+    const orderResult = await client.query(
       `INSERT INTO orders (
          table_number, order_type, customer_name, customer_phone, customer_cep,
          delivery_address, delivery_reference, delivery_distance_km,
@@ -607,28 +647,31 @@ app.post('/orders', async (req, res) => {
 
     const order = orderResult.rows[0]
 
-    const insertItemPromises = items.map((item) =>
-      query(
+    for (const item of pricedLines) {
+      await client.query(
         `INSERT INTO order_items (order_id, item_id, item_name, category, subcategory, quantity, unit_price, size_id, size_label)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           order.id,
-          Number(item.id ?? 0),
-          item.name ?? 'Item',
-          item.category ?? 'pizzas',
-          item.subcategory ?? '',
-          Number(item.qty ?? 1),
-          Number(item.price ?? 0),
-          item.sizeId ?? '',
-          item.sizeLabel ?? '',
+          item.id,
+          item.name,
+          item.category,
+          item.subcategory,
+          item.qty,
+          item.unitPrice,
+          item.sizeId,
+          item.sizeLabel,
         ],
-      ),
-    )
+      )
+    }
 
-    await Promise.all(insertItemPromises)
+    await client.query('COMMIT')
     return res.status(201).json(order)
   } catch (error) {
+    await client.query('ROLLBACK')
     return res.status(500).json({ message: 'Erro ao salvar pedido', detail: error.message })
+  } finally {
+    client.release()
   }
 })
 
@@ -651,7 +694,7 @@ function parseDateTimeQuery(value) {
   return parsed
 }
 
-app.get('/orders/cash-close/preview', async (req, res) => {
+app.get('/orders/cash-close/preview', requireAdmin, async (req, res) => {
   try {
     const periodTo = parseDateTimeQuery(req.query.to) ?? new Date()
     const preview = await buildCashClosePreview(query, periodTo)
@@ -661,7 +704,7 @@ app.get('/orders/cash-close/preview', async (req, res) => {
   }
 })
 
-app.post('/orders/cash-close', async (req, res) => {
+app.post('/orders/cash-close', requireAdmin, async (req, res) => {
   try {
     const periodTo = parseDateTimeQuery(req.body?.periodTo) ?? new Date()
     const notes = String(req.body?.notes ?? '').trim()
@@ -675,7 +718,7 @@ app.post('/orders/cash-close', async (req, res) => {
   }
 })
 
-app.get('/orders/cash-closings', async (req, res) => {
+app.get('/orders/cash-closings', requireAdmin, async (req, res) => {
   try {
     const closings = await listCashClosings(query, req.query.limit)
     return res.json(closings)
@@ -684,7 +727,7 @@ app.get('/orders/cash-closings', async (req, res) => {
   }
 })
 
-app.get('/orders/report', async (req, res) => {
+app.get('/orders/report', requireAdmin, async (req, res) => {
   const today = todayIsoDate()
   const from = parseDateQuery(req.query.from, today)
   const to = parseDateQuery(req.query.to, from)
@@ -724,7 +767,7 @@ app.get('/orders/report', async (req, res) => {
   }
 })
 
-app.get('/orders', async (req, res) => {
+app.get('/orders', requireAdmin, async (req, res) => {
   const from = req.query.from
   const to = req.query.to
 
@@ -755,7 +798,7 @@ app.get('/orders', async (req, res) => {
   }
 })
 
-app.get('/orders/:id/items', async (req, res) => {
+app.get('/orders/:id/items', requireAdmin, async (req, res) => {
   const orderId = Number(req.params.id)
   if (!Number.isInteger(orderId)) {
     return res.status(400).json({ message: 'ID invalido' })
@@ -822,7 +865,7 @@ async function updateOrderDeliveryFee(orderId, rawFee) {
   return { status: 200, body: result.rows[0] }
 }
 
-app.patch('/orders/:id/delivery-fee', async (req, res) => {
+app.patch('/orders/:id/delivery-fee', requireAdmin, async (req, res) => {
   const orderId = Number(req.params.id)
   if (!Number.isInteger(orderId)) {
     return res.status(400).json({ message: 'ID invalido' })
@@ -839,7 +882,7 @@ app.patch('/orders/:id/delivery-fee', async (req, res) => {
   }
 })
 
-app.patch('/orders/:id', async (req, res) => {
+app.patch('/orders/:id', requireAdmin, async (req, res) => {
   const orderId = Number(req.params.id)
   if (!Number.isInteger(orderId)) {
     return res.status(400).json({ message: 'ID invalido' })
@@ -954,7 +997,7 @@ app.patch('/orders/:id', async (req, res) => {
   }
 })
 
-app.patch('/orders/:id/status', async (req, res) => {
+app.patch('/orders/:id/status', requireAdmin, async (req, res) => {
   const orderId = Number(req.params.id)
   const { status } = req.body
 

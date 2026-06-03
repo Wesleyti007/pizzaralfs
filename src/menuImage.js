@@ -1,6 +1,7 @@
 /** Proporção e tamanho usados nos cards do cardápio (16:9). */
 export const MENU_IMAGE_WIDTH = 480
 export const MENU_IMAGE_HEIGHT = 270
+import { adminFetch } from './apiAuth.js'
 import { API_BASE_URL } from './apiBaseUrl.js'
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 const JPEG_QUALITY = 0.82
@@ -93,7 +94,7 @@ export async function uploadMenuImageFile(file) {
   const formData = new FormData()
   formData.append('image', file)
 
-  const response = await fetch(`${API_BASE_URL}/menu-items/process-image`, {
+  const response = await adminFetch(API_BASE_URL, '/menu-items/process-image', {
     method: 'POST',
     body: formData,
   })

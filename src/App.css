@@ -4462,6 +4462,12 @@ body.home-splash-active .brand-header {
   color: #1d4ed8;
 }
 
+.orders-status-badge--fee-pending {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffc107;
+}
+
 .orders-status-badge--pending {
   background: rgba(185, 28, 28, 0.12);
   color: #991b1b;

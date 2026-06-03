@@ -1,3 +1,5 @@
+import { adminFetch } from './apiAuth.js'
+
 export const ORDER_STATUS = {
   PENDING: 'pending',
   PRINTED: 'printed',
@@ -70,7 +72,7 @@ export function dateInputDaysAgo(days) {
 
 export async function fetchOrdersReport(apiBaseUrl, from, to) {
   const params = new URLSearchParams({ from, to })
-  const response = await fetch(`${apiBaseUrl}/orders/report?${params}`)
+  const response = await adminFetch(apiBaseUrl, `/orders/report?${params}`)
 
   const contentType = response.headers.get('content-type') || ''
   if (!contentType.includes('application/json')) {
@@ -88,7 +90,7 @@ export async function fetchOrdersReport(apiBaseUrl, from, to) {
 }
 
 export async function patchOrderDetails(apiBaseUrl, orderId, payload) {
-  const response = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
+  const response = await adminFetch(apiBaseUrl, `/orders/${orderId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -101,7 +103,7 @@ export async function patchOrderDetails(apiBaseUrl, orderId, payload) {
 }
 
 export async function patchOrderDeliveryFee(apiBaseUrl, orderId, deliveryFee) {
-  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/delivery-fee`, {
+  const response = await adminFetch(apiBaseUrl, `/orders/${orderId}/delivery-fee`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ deliveryFee }),
@@ -114,7 +116,7 @@ export async function patchOrderDeliveryFee(apiBaseUrl, orderId, deliveryFee) {
 }
 
 export async function patchOrderStatus(apiBaseUrl, orderId, status) {
-  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/status`, {
+  const response = await adminFetch(apiBaseUrl, `/orders/${orderId}/status`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),

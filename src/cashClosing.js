@@ -1,3 +1,4 @@
+import { adminFetch } from './apiAuth.js'
 import { formatOrderDateTime, formatOrderMoney } from './orders.js'
 import { waitForPrintDocument } from './orderPrint.js'
 
@@ -32,14 +33,15 @@ export async function fetchCashClosePreview(apiBaseUrl, { to } = {}) {
   const params = new URLSearchParams()
   if (to) params.set('to', to)
   const qs = params.toString()
-  const response = await fetch(
-    `${apiBaseUrl}/orders/cash-close/preview${qs ? `?${qs}` : ''}`,
+  const response = await adminFetch(
+    apiBaseUrl,
+    `/orders/cash-close/preview${qs ? `?${qs}` : ''}`,
   )
   return parseJsonResponse(response, 'Falha ao carregar fechamento de caixa')
 }
 
 export async function closeCashRegister(apiBaseUrl, { notes = '', periodTo } = {}) {
-  const response = await fetch(`${apiBaseUrl}/orders/cash-close`, {
+  const response = await adminFetch(apiBaseUrl, '/orders/cash-close', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -52,7 +54,7 @@ export async function closeCashRegister(apiBaseUrl, { notes = '', periodTo } = {
 
 export async function fetchCashClosings(apiBaseUrl, limit = 15) {
   const params = new URLSearchParams({ limit: String(limit) })
-  const response = await fetch(`${apiBaseUrl}/orders/cash-closings?${params}`)
+  const response = await adminFetch(apiBaseUrl, `/orders/cash-closings?${params}`)
   return parseJsonResponse(response, 'Falha ao carregar histórico de fechamentos')
 }
 

@@ -144,6 +144,7 @@ import {
 } from './menuImage.js'
 
 const STORAGE_KEY = 'pizza-ralfs-menu'
+const CATALOG_CACHE_VERSION_KEY = 'pizza-ralfs-catalog-version'
 const CATEGORIES_STORAGE_KEY = 'pizza-ralfs-categories'
 const TABLES_STORAGE_KEY = 'pizza-ralfs-tables'
 const AUTH_STORAGE_KEY = 'pizza-ralfs-auth'
@@ -157,6 +158,14 @@ const WAITER_PASSWORD = String(import.meta.env.VITE_WAITER_PASSWORD || 'ralfsgar
 const HOME_SPLASH_MS = 4000
 const HOME_SPLASH_FADE_MS = 400
 import { API_BASE_URL } from './apiBaseUrl.js'
+import {
+  adminFetch,
+  CATALOG_CACHE_VERSION,
+  clearAdminApiToken,
+  getAdminApiToken,
+  loginAdminWithFallback,
+  verifyAdminSession,
+} from './apiAuth.js'
 const LOGO_URL = '/logo-ralfs-web.png'
 const DEVELOPER_LINKEDIN_URL =
   'https://www.linkedin.com/in/wesley-santos-515b73152/'
@@ -403,6 +412,7 @@ function normalizeMenuItems(items, categories) {
 }
 
 function persistMenuItems(items) {
+  localStorage.setItem(CATALOG_CACHE_VERSION_KEY, CATALOG_CACHE_VERSION)
   localStorage.setItem(STORAGE_KEY, JSON.stringify(menuItemsForStorage(items)))
 }
 
@@ -442,6 +452,11 @@ function loadCategories() {
 }
 
 function loadMenu(categories) {
+  if (localStorage.getItem(CATALOG_CACHE_VERSION_KEY) !== CATALOG_CACHE_VERSION) {
+    localStorage.removeItem(STORAGE_KEY)
+    localStorage.setItem(CATALOG_CACHE_VERSION_KEY, CATALOG_CACHE_VERSION)
+  }
+
   const saved = localStorage.getItem(STORAGE_KEY)
   if (!saved) return normalizeMenuItems(defaultMenu, categories)
 
@@ -482,9 +497,7 @@ function App() {
   const [categories, setCategories] = useState(loadCategories)
   const [menuItems, setMenuItems] = useState(() => loadMenu(loadCategories()))
   const [tables, setTables] = useState(loadTables)
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => localStorage.getItem(AUTH_STORAGE_KEY) === 'true',
-  )
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isWaiterAuthenticated, setIsWaiterAuthenticated] = useState(() => {
     if (localStorage.getItem(WAITER_AUTH_STORAGE_KEY) === 'true') return true
     // sessão antiga (pizza-ralfs-garcom-auth)
@@ -512,6 +525,28 @@ function App() {
     localStorage.setItem(TABLES_STORAGE_KEY, JSON.stringify(normalized))
   }
 
+  useEffect(() => {
+    if (localStorage.getItem(AUTH_STORAGE_KEY) !== 'true') return undefined
+    let cancelled = false
+
+    const token = getAdminApiToken()
+    if (!token) {
+      setIsAuthenticated(true)
+      return undefined
+    }
+
+    verifyAdminSession(API_BASE_URL).then((ok) => {
+      if (cancelled) return
+      setIsAuthenticated(ok)
+      if (!ok) {
+        localStorage.removeItem(AUTH_STORAGE_KEY)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const loadDataFromApi = useCallback(
     async ({ silent = false, adminMode = false, withImages = false } = {}) => {
       const menuQuery = adminMode
@@ -521,10 +556,14 @@ function App() {
         : ''
 
       try {
+        const menuRequest = adminMode
+          ? adminFetch(API_BASE_URL, `/menu-items${menuQuery}`)
+          : fetch(`${API_BASE_URL}/menu-items${menuQuery}`)
+
         const [categoriesResponse, settingsResponse, menuResponse] = await Promise.all([
           fetch(`${API_BASE_URL}/categories`),
           fetch(`${API_BASE_URL}/settings`),
-          fetch(`${API_BASE_URL}/menu-items${menuQuery}`),
+          menuRequest,
         ])
 
         let nextCategories = null
@@ -561,8 +600,14 @@ function App() {
           }
 
           if (items.length === 0) {
+            if (adminMode) {
+              setMenuItems([])
+              persistMenuItems([])
+            }
             if (!silent) {
-              setMenuSyncMessage('Nenhum produto na API. Usando cardápio local.')
+              setMenuSyncMessage(
+                adminMode ? 'Nenhum produto na API.' : 'Nenhum produto na API. Usando cardápio local.',
+              )
             }
             return
           }
@@ -627,7 +672,7 @@ function App() {
   }, [isAuthenticated, loadDataFromApi])
 
   const saveDeliverySettings = async (settingsPayload) => {
-    const response = await fetch(`${API_BASE_URL}/settings`, {
+    const response = await adminFetch(API_BASE_URL, '/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settingsPayload),
@@ -641,7 +686,7 @@ function App() {
   }
 
   const createMenuItem = async (itemData) => {
-    const response = await fetch(`${API_BASE_URL}/menu-items`, {
+    const response = await adminFetch(API_BASE_URL, '/menu-items', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -662,7 +707,7 @@ function App() {
   }
 
   const updateMenuItem = async (itemId, itemData) => {
-    const response = await fetch(`${API_BASE_URL}/menu-items/${itemId}`, {
+    const response = await adminFetch(API_BASE_URL, `/menu-items/${itemId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -696,7 +741,7 @@ function App() {
     const normalized = normalizeCategories(nextCategories)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/categories`, {
+      const response = await adminFetch(API_BASE_URL, '/categories', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ categories: normalized }),
@@ -721,7 +766,7 @@ function App() {
   }
 
   const deleteMenuItem = async (itemId) => {
-    const response = await fetch(`${API_BASE_URL}/menu-items/${itemId}`, {
+    const response = await adminFetch(API_BASE_URL, `/menu-items/${itemId}`, {
       method: 'DELETE',
     })
 
@@ -736,7 +781,7 @@ function App() {
   }
 
   const setMenuItemActive = async (itemId, isActive) => {
-    const response = await fetch(`${API_BASE_URL}/menu-items/${itemId}/active`, {
+    const response = await adminFetch(API_BASE_URL, `/menu-items/${itemId}/active`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isActive: Boolean(isActive) }),
@@ -768,18 +813,23 @@ function App() {
     return updatedItem
   }
 
-  const handleLogin = (username, password) => {
-    if (username === ADMIN_USER && password === ADMIN_PASSWORD) {
-      setIsAuthenticated(true)
-      localStorage.setItem(AUTH_STORAGE_KEY, 'true')
-      return true
+  const handleLogin = async (username, password) => {
+    const result = await loginAdminWithFallback(API_BASE_URL, username, password, {
+      localUser: ADMIN_USER,
+      localPassword: ADMIN_PASSWORD,
+    })
+    if (!result.ok) {
+      return { ok: false, error: result.error }
     }
-    return false
+    setIsAuthenticated(true)
+    localStorage.setItem(AUTH_STORAGE_KEY, 'true')
+    return { ok: true }
   }
 
   const handleLogout = () => {
     setIsAuthenticated(false)
     localStorage.removeItem(AUTH_STORAGE_KEY)
+    clearAdminApiToken()
   }
 
   const handleWaiterLogin = (username, password) => {
@@ -1329,11 +1379,24 @@ function LoginPage({
     setForm((current) => ({ ...current, [name]: value }))
   }
 
-  const handleSubmit = (event) => {
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    const ok = onLogin(form.username.trim(), form.password)
-    if (!ok) {
-      setError('Usuário ou senha inválidos.')
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await onLogin(form.username.trim(), form.password)
+      const ok = typeof result === 'boolean' ? result : Boolean(result?.ok)
+      if (!ok) {
+        setError(
+          typeof result === 'object' && result?.error
+            ? result.error
+            : 'Usuário ou senha inválidos.',
+        )
+      }
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -1356,7 +1419,9 @@ function LoginPage({
           placeholder="Senha"
         />
         {error && <p className="login-error">{error}</p>}
-        <button type="submit">Entrar</button>
+        <button type="submit" disabled={submitting}>
+          {submitting ? 'Entrando...' : 'Entrar'}
+        </button>
       </form>
     </section>
   )
@@ -1917,7 +1982,9 @@ function MenuItemCard({
           <div className="pizza-sizes">
             <span className="pizza-sizes-label">Tamanho</span>
             <div className="pizza-sizes-options" role="group" aria-label="Tamanho da pizza">
-              {menuItem.sizes.map((size) => (
+              {menuItem.sizes.map((size) => {
+                const sizePrice = resolveUnitPrice(menuItem, size.id, forDelivery)
+                return (
                 <button
                   key={size.id}
                   type="button"
@@ -1928,9 +1995,10 @@ function MenuItemCard({
                   <span className="pizza-size-btn-meta">
                     {isCalzone ? '1 sabor' : `${size.pieces} pedaços`}
                   </span>
-                  <span className="pizza-size-btn-price">R$ {size.price.toFixed(2)}</span>
+                  <span className="pizza-size-btn-price">R$ {sizePrice.toFixed(2)}</span>
                 </button>
-              ))}
+                )
+              })}
             </div>
           </div>
 
@@ -2180,6 +2248,17 @@ function HomePage({
       }
       deliveryData = check.data
       saveDeliveryInfoToSession(deliveryInfo)
+    }
+
+    if (
+      !isDelivery &&
+      !isWaiter &&
+      hasTableNumber &&
+      tables.length > 0 &&
+      !isRegisteredTable
+    ) {
+      setOrderMessage('Mesa não cadastrada. Use o QR da mesa ou peça ao garçom.')
+      return
     }
 
     if (isWaiter) {
@@ -3106,7 +3185,7 @@ function OrdersPage() {
   const [audioPrimed, setAudioPrimed] = useState(false)
 
   const fetchOrderItems = async (orderId) => {
-    const response = await fetch(`${API_BASE_URL}/orders/${orderId}/items`)
+    const response = await adminFetch(API_BASE_URL, `/orders/${orderId}/items`)
     if (!response.ok) throw new Error('Falha ao carregar itens do pedido')
     return response.json()
   }
@@ -3153,7 +3232,7 @@ function OrdersPage() {
       }
       if (!silent) setError('')
       try {
-        const response = await fetch(`${API_BASE_URL}/orders`)
+        const response = await adminFetch(API_BASE_URL, '/orders')
         if (!response.ok) throw new Error('Falha ao carregar pedidos')
         const data = await response.json()
         const list = Array.isArray(data) ? data : []
@@ -3480,6 +3559,13 @@ function OrdersPage() {
                   <span className={`orders-status-badge ${orderStatusBadgeClass(order.status)}`}>
                     {orderStatusLabel(order.status)}
                   </span>
+                  {isDeliveryOrder(order.tableNumber, order.orderType) &&
+                  Number(order.deliveryFee) === 0 &&
+                  !cancelled ? (
+                    <span className="orders-status-badge orders-status-badge--fee-pending">
+                      Taxa a confirmar
+                    </span>
+                  ) : null}
                 </div>
 
                 <p className="orders-card-total">
