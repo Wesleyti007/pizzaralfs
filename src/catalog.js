@@ -3,6 +3,7 @@ export const TABLE_SESSION_KEY = 'pizza-ralfs-active-mesa'
 /** Item tem imagem exibível no cardápio. */
 export function hasMenuItemImage(imageOrItem) {
   if (imageOrItem && typeof imageOrItem === 'object') {
+    if (isCalzoneCategory(imageOrItem.category)) return true
     if (imageOrItem.hasImage === true) return true
     return String(imageOrItem.image ?? '').trim().length > 32
   }
@@ -376,16 +377,67 @@ export const PIZZA_SIZE_TEMPLATES = [
   { id: 'grande', label: 'Grande', pieces: 8 },
 ]
 
+export const CALZONE_SIZE_TEMPLATES = [
+  { id: 'pequeno', label: 'Pequeno', pieces: 1 },
+  { id: 'grande', label: 'Grande', pieces: 1 },
+]
+
+export const CALZONE_DEFAULT_IMAGE = '/calzone-default.png'
+
 export function isPizzaCategory(categoryId) {
   return categoryId === 'pizzas'
 }
 
+export function isCalzoneCategory(categoryId) {
+  return String(categoryId || '').trim().toLowerCase() === 'calzone'
+}
+
+export function isItemWithSizesCategory(categoryId) {
+  return isPizzaCategory(categoryId) || isCalzoneCategory(categoryId)
+}
+
+export function parseMenuItemSizesField(rawSizes) {
+  if (Array.isArray(rawSizes)) return rawSizes
+  if (typeof rawSizes === 'string' && rawSizes.trim()) {
+    try {
+      const parsed = JSON.parse(rawSizes)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function normalizeStoredSizes(rawSizes, fallbackPrice = 0) {
+  const list = parseMenuItemSizesField(rawSizes)
+  if (!list.length) return []
+  const fallback = Number(fallbackPrice) || 0
+  return list
+    .map((entry, index) => {
+      const id = String(entry?.id || `tamanho-${index + 1}`).trim()
+      const label = String(entry?.label || id).trim()
+      const price = Number(entry?.price ?? fallback)
+      const pieces = Number(entry?.pieces) || 1
+      const size = {
+        id,
+        label,
+        pieces: Number.isFinite(pieces) && pieces > 0 ? pieces : 1,
+        price: Number.isFinite(price) && price >= 0 ? price : 0,
+      }
+      const deliveryPrice = Number(entry?.deliveryPrice ?? entry?.delivery_price)
+      if (Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
+        size.deliveryPrice = deliveryPrice
+      }
+      return size
+    })
+    .filter((size) => size.price > 0 || size.id)
+}
+
 export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
   const byId = new Map()
-  if (Array.isArray(rawSizes)) {
-    for (const entry of rawSizes) {
-      if (entry?.id) byId.set(entry.id, entry)
-    }
+  for (const entry of parseMenuItemSizesField(rawSizes)) {
+    if (entry?.id) byId.set(entry.id, entry)
   }
 
   const fallback = Number(fallbackPrice) || 0
@@ -408,7 +460,7 @@ export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
 }
 
 export function itemHasSizes(item) {
-  return isPizzaCategory(item?.category) && Array.isArray(item?.sizes) && item.sizes.length > 0
+  return isItemWithSizesCategory(item?.category) && Array.isArray(item?.sizes) && item.sizes.length > 0
 }
 
 export function normalizeMenuItemOptionsList(raw) {
@@ -525,7 +577,8 @@ export function getPizzaSizePrice(menuItem, sizeId) {
 }
 
 /** Quantos sabores o cliente pode combinar neste tamanho. */
-export function getMaxFlavorsForSize(sizeId) {
+export function getMaxFlavorsForSize(sizeId, categoryId = 'pizzas') {
+  if (isCalzoneCategory(categoryId)) return 1
   if (sizeId === 'broto') return 1
   if (sizeId === 'media') return 2
   if (sizeId === 'grande') return 4
@@ -682,12 +735,20 @@ export function formatPriceForInput(price) {
   return applyPriceMask(String(Math.round(numeric * 100)))
 }
 
-export function emptySizePrices() {
-  return { broto: '', media: '', grande: '' }
+export function sizeTemplatesForCategory(categoryId) {
+  if (isCalzoneCategory(categoryId)) return CALZONE_SIZE_TEMPLATES
+  if (isPizzaCategory(categoryId)) return PIZZA_SIZE_TEMPLATES
+  return []
+}
+
+export function emptySizePrices(categoryId = 'pizzas') {
+  return Object.fromEntries(
+    sizeTemplatesForCategory(categoryId).map((template) => [template.id, '']),
+  )
 }
 
 export function buildSizePricesFromItem(item, { delivery = false } = {}) {
-  const prices = emptySizePrices()
+  const prices = emptySizePrices(item?.category)
   if (!itemHasSizes(item)) return prices
 
   for (const size of item.sizes) {
@@ -698,9 +759,10 @@ export function buildSizePricesFromItem(item, { delivery = false } = {}) {
 }
 
 export function buildSizesFromForm(category, price, sizePrices, sizeDeliveryPrices = null) {
-  if (!isPizzaCategory(category)) return []
+  const templates = sizeTemplatesForCategory(category)
+  if (!templates.length) return []
 
-  return PIZZA_SIZE_TEMPLATES.map((template) => {
+  return templates.map((template) => {
     const parsed = parsePriceInput(sizePrices?.[template.id] || '')
     const parsedDelivery = parsePriceInput(sizeDeliveryPrices?.[template.id] || '')
     const size = {
@@ -717,6 +779,23 @@ export function buildSizesFromForm(category, price, sizePrices, sizeDeliveryPric
 }
 
 export function normalizeMenuItemSizes(item) {
+  if (isCalzoneCategory(item.category)) {
+    let sizes = normalizeStoredSizes(item.sizes, item.price)
+    if (!sizes.length) {
+      sizes = normalizeStoredSizes(
+        [
+          { id: 'pequeno', label: 'Pequeno', pieces: 1, price: 17 },
+          { id: 'grande', label: 'Grande', pieces: 1, price: 24 },
+        ],
+        item.price,
+      )
+    }
+    const positivePrices = sizes.map((size) => size.price).filter((value) => value > 0)
+    const price =
+      positivePrices.length > 0 ? Math.min(...positivePrices) : Number(item.price) || 0
+    return { ...item, sizes, price, options: [] }
+  }
+
   if (!isPizzaCategory(item.category)) {
     return { ...item, sizes: [] }
   }

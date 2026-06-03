@@ -1,4 +1,5 @@
 import { API_BASE_URL } from './apiBaseUrl.js'
+import { CALZONE_DEFAULT_IMAGE, isCalzoneCategory } from './catalog.js'
 
 export function hasMenuItemImageValue(image) {
   return String(image ?? '').trim().length > 32
@@ -6,6 +7,7 @@ export function hasMenuItemImageValue(image) {
 
 export function menuItemHasImage(item) {
   if (!item) return false
+  if (isCalzoneCategory(item.category)) return true
   if (item.hasImage === true) return true
   return hasMenuItemImageValue(item.image)
 }
@@ -33,6 +35,10 @@ export function shouldShowAdminMenuPreview(image, item) {
 
 export function menuItemImageSrc(item, options = {}) {
   if (!item || !menuItemHasImage(item)) return null
+
+  if (isCalzoneCategory(item.category) && !hasMenuItemImageValue(item.image) && item.hasImage !== true) {
+    return CALZONE_DEFAULT_IMAGE
+  }
 
   const apiBase = options.apiBase ?? API_BASE_URL
   const variant = options.variant === 'full' ? 'full' : 'card'

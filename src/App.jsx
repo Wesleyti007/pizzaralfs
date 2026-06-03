@@ -113,6 +113,7 @@ import {
   parsePriceInput,
   groupMenuItemsForAdmin,
   hasMenuItemImage,
+  isCalzoneCategory,
   isPizzaCategory,
   itemHasSizes,
   itemHasOptions,
@@ -126,6 +127,7 @@ import {
   normalizeMenuItemOptions,
   normalizeMenuItemSizes,
   PIZZA_SIZE_TEMPLATES,
+  sizeTemplatesForCategory,
   resolveActiveCategory,
   resolveActiveSubcategory,
   slugify,
@@ -365,7 +367,7 @@ function buildMenuItemApiPayload(item, isActive) {
     payload.image = imageValue
   }
 
-  if (isPizzaCategory(item.category)) {
+  if (isPizzaCategory(item.category) || isCalzoneCategory(item.category)) {
     const sizes = Array.isArray(item.sizes) ? item.sizes : []
     payload.sizes = sizes
     payload.options = []
@@ -1714,6 +1716,8 @@ function MenuItemCard({
   imagePriority = false,
 }) {
   const hasSizes = itemHasSizes(menuItem)
+  const isCalzone = isCalzoneCategory(menuItem.category)
+  const showFlavorPicker = isCombinablePizzaItem(menuItem, categories)
   const hasOptions = itemHasOptions(menuItem)
   const [selectedSizeId, setSelectedSizeId] = useState(
     () => menuItem.sizes?.[0]?.id || 'broto',
@@ -1728,7 +1732,7 @@ function MenuItemCard({
   const selectedSize =
     menuItem.sizes?.find((size) => size.id === selectedSizeId) || menuItem.sizes?.[0]
   const pieceCount = getPiecesForSize(selectedSizeId, menuItem.sizes)
-  const maxFlavors = getMaxFlavorsForSize(selectedSizeId)
+  const maxFlavors = getMaxFlavorsForSize(selectedSizeId, menuItem.category)
   const unitPrice = hasSizes
     ? resolveUnitPrice(menuItem, selectedSizeId, forDelivery)
     : resolveUnitPrice(menuItem, '', forDelivery)
@@ -1770,7 +1774,7 @@ function MenuItemCard({
 
   const handleSizeChange = (sizeId) => {
     setSelectedSizeId(sizeId)
-    const max = getMaxFlavorsForSize(sizeId)
+    const max = getMaxFlavorsForSize(sizeId, menuItem.category)
     setSelectedFlavorIds((current) => {
       const trimmed = normalizeFlavorIdList(current).slice(0, max)
       const primary = normalizeItemId(menuItem.id)
@@ -1819,7 +1823,9 @@ function MenuItemCard({
     }
 
     const sizeLabel = selectedSize
-      ? `${selectedSize.label} (${selectedSize.pieces} pedaços)`
+      ? isCalzone
+        ? selectedSize.label
+        : `${selectedSize.label} (${selectedSize.pieces} pedaços)`
       : ''
     const flavorIds = normalizeFlavorIdList(selectedFlavorIds)
     const flavorItems = flavorIds.map((id) => pizzaById.get(id)).filter(Boolean)
@@ -1907,27 +1913,31 @@ function MenuItemCard({
                   onClick={() => handleSizeChange(size.id)}
                 >
                   <span className="pizza-size-btn-label">{size.label}</span>
-                  <span className="pizza-size-btn-meta">{size.pieces} pedaços</span>
+                  <span className="pizza-size-btn-meta">
+                    {isCalzone ? '1 sabor' : `${size.pieces} pedaços`}
+                  </span>
                   <span className="pizza-size-btn-price">R$ {size.price.toFixed(2)}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          <PizzaSlicePicker
-            sizeId={selectedSizeId}
-            pieceCount={pieceCount}
-            primaryFlavor={menuItem}
-            selectedFlavors={selectedFlavors}
-            otherPizzaOptions={otherPizzaOptions}
-            categories={categories}
-            onAddFlavor={handleAddFlavor}
-            onRemoveFlavor={handleRemoveFlavor}
-            onResetFlavors={handleResetFlavors}
-            normalizeItemId={normalizeItemId}
-            sameItemId={sameItemId}
-            forDelivery={forDelivery}
-          />
+          {showFlavorPicker ? (
+            <PizzaSlicePicker
+              sizeId={selectedSizeId}
+              pieceCount={pieceCount}
+              primaryFlavor={menuItem}
+              selectedFlavors={selectedFlavors}
+              otherPizzaOptions={otherPizzaOptions}
+              categories={categories}
+              onAddFlavor={handleAddFlavor}
+              onRemoveFlavor={handleRemoveFlavor}
+              onResetFlavors={handleResetFlavors}
+              normalizeItemId={normalizeItemId}
+              sameItemId={sameItemId}
+              forDelivery={forDelivery}
+            />
+          ) : null}
         </>
       ) : (
         <strong className="card-price">{formatPriceRangeLabel(menuItem)}</strong>
@@ -3605,7 +3615,8 @@ function AdminItemFormFields({
   onDeliveryPriceChange,
   onImageUpload,
 }) {
-  const showPizzaSizes = isPizzaCategory(form.category)
+  const sizeTemplates = sizeTemplatesForCategory(form.category)
+  const showSizedPrices = sizeTemplates.length > 0
 
   return (
     <>
@@ -3642,14 +3653,21 @@ function AdminItemFormFields({
           cardápio.
         </small>
       </label>
-      {showPizzaSizes ? (
+      {showSizedPrices ? (
         <div className="pizza-sizes-admin field-full">
-          <span className="field-label">Preços por tamanho (pizzas)</span>
+          <span className="field-label">
+            {isCalzoneCategory(form.category)
+              ? 'Preços por tamanho (calzone)'
+              : 'Preços por tamanho (pizzas)'}
+          </span>
           <div className="pizza-sizes-admin-grid">
-            {PIZZA_SIZE_TEMPLATES.map((template) => (
+            {sizeTemplates.map((template) => (
               <label key={template.id} className="pizza-size-admin-field">
                 <span className="pizza-size-admin-label">
-                  {template.label} ({template.pieces} pedaços)
+                  {template.label}
+                  {isCalzoneCategory(form.category)
+                    ? ' (1 sabor)'
+                    : ` (${template.pieces} pedaços)`}
                 </span>
                 <div className="price-input-wrap">
                   <span className="price-prefix" aria-hidden="true">
@@ -3667,33 +3685,35 @@ function AdminItemFormFields({
               </label>
             ))}
           </div>
-          <div className="pizza-sizes-admin pizza-sizes-admin--delivery field-full">
-            <span className="field-label">Preços delivery por tamanho (opcional)</span>
-            <small className="field-hint field-hint-block">
-              Vazio = mesmo preço do salão. Preencha só onde o delivery for diferente.
-            </small>
-            <div className="pizza-sizes-admin-grid">
-              {PIZZA_SIZE_TEMPLATES.map((template) => (
-                <label key={`delivery-${template.id}`} className="pizza-size-admin-field">
-                  <span className="pizza-size-admin-label">{template.label} delivery</span>
-                  <div className="price-input-wrap">
-                    <span className="price-prefix" aria-hidden="true">
-                      R$
-                    </span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={form.sizeDeliveryPrices?.[template.id] || ''}
-                      onChange={(event) =>
-                        onSizeDeliveryPriceChange(template.id, event.target.value)
-                      }
-                      placeholder="Igual salão"
-                    />
-                  </div>
-                </label>
-              ))}
+          {isPizzaCategory(form.category) ? (
+            <div className="pizza-sizes-admin pizza-sizes-admin--delivery field-full">
+              <span className="field-label">Preços delivery por tamanho (opcional)</span>
+              <small className="field-hint field-hint-block">
+                Vazio = mesmo preço do salão. Preencha só onde o delivery for diferente.
+              </small>
+              <div className="pizza-sizes-admin-grid">
+                {sizeTemplates.map((template) => (
+                  <label key={`delivery-${template.id}`} className="pizza-size-admin-field">
+                    <span className="pizza-size-admin-label">{template.label} delivery</span>
+                    <div className="price-input-wrap">
+                      <span className="price-prefix" aria-hidden="true">
+                        R$
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={form.sizeDeliveryPrices?.[template.id] || ''}
+                        onChange={(event) =>
+                          onSizeDeliveryPriceChange(template.id, event.target.value)
+                        }
+                        placeholder="Igual salão"
+                      />
+                    </div>
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       ) : (
         <div className="admin-price-row field-full">
@@ -5149,9 +5169,10 @@ function AdminPage({
           ...current,
           category: value,
           subcategory: '',
-          price: isPizzaCategory(value) ? '' : current.price,
-          sizePrices: emptySizePrices(),
-          sizeDeliveryPrices: emptySizePrices(),
+          price:
+            isPizzaCategory(value) || isCalzoneCategory(value) ? '' : current.price,
+          sizePrices: emptySizePrices(value),
+          sizeDeliveryPrices: emptySizePrices(value),
         }
       }
       return { ...current, [name]: value }
@@ -5288,7 +5309,7 @@ function AdminPage({
       isActive: form.isActive !== false,
     }
 
-    if (isPizzaCategory(form.category)) {
+    if (isPizzaCategory(form.category) || isCalzoneCategory(form.category)) {
       const sizes = buildSizesFromForm(
         form.category,
         0,
@@ -5301,7 +5322,9 @@ function AdminPage({
           error: {
             variant: 'error',
             title: 'Preços incompletos',
-            description: 'Preencha Broto, Média e Grande.',
+            description: isCalzoneCategory(form.category)
+              ? 'Preencha Pequeno e Grande.'
+              : 'Preencha Broto, Média e Grande.',
           },
         }
       }
