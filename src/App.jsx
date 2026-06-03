@@ -430,10 +430,12 @@ function mergeMenuItemsPreservingImages(freshFromApi, currentItems, categories) 
     const prev = byId.get(String(item.id))
     if (!prev) return item
     const image = String(item.image || '').trim() || prev.image || ''
+    const merged = { ...item, image }
     return {
-      ...item,
-      image,
-      hasImage: item.hasImage === true || hasMenuItemImage(image) || hasMenuItemImage(prev),
+      ...merged,
+      hasImage:
+        hasMenuItemImage(merged) ||
+        (item.hasImage === true && Boolean(normalizeItemId(item.id))),
     }
   })
 }
@@ -1969,7 +1971,14 @@ function MenuItemCard({
 
   const addDisabled =
     (hasOptions && !selectedOptionId) || (hasSizes && selectedFlavors.length === 0)
-  const showImage = hasMenuItemImage(menuItem)
+  const imageSrc = menuItemImageSrc(menuItem, { variant: 'card' })
+  const [imageFailed, setImageFailed] = useState(false)
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [menuItem.id, imageSrc])
+
+  const showImage = Boolean(imageSrc) && !imageFailed
   const placeholderStyle = showImage
     ? undefined
     : { '--placeholder-logo': `url(${LOGO_URL})` }
@@ -1984,8 +1993,10 @@ function MenuItemCard({
           <>
             <CatalogCardImage
               item={menuItem}
+              src={imageSrc}
               name={menuItem.name}
               priority={imagePriority}
+              onError={() => setImageFailed(true)}
             />
             <span className="card-media-illustrative" aria-hidden="true">
               Ilustrativa

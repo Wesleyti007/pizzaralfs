@@ -145,8 +145,15 @@ export async function normalizeMenuImageSource(imageValue) {
   if (!raw || /^https?:\/\//i.test(raw)) {
     return raw
   }
-  if (!raw.startsWith('data:image/')) {
+  if (!raw.startsWith('data:image/') && !/^[A-Za-z0-9+/=\r\n]+$/.test(raw.replace(/\s/g, ''))) {
     return raw
+  }
+  if (!raw.startsWith('data:image/')) {
+    const clean = raw.replace(/\s/g, '')
+    const mime = clean.startsWith('iVBOR') ? 'image/png' : 'image/jpeg'
+    const dataUrl = `data:${mime};base64,${clean}`
+    const img = await loadImage(dataUrl)
+    return drawNormalizedImage(img, MENU_IMAGE_WIDTH, MENU_IMAGE_HEIGHT)
   }
 
   const img = await loadImage(raw)

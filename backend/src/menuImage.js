@@ -10,11 +10,15 @@ function decodeImageBuffer(imageInput) {
     return { skip: true, value: raw }
   }
 
-  if (!raw.startsWith('data:image/')) {
+  let base64 = ''
+  if (raw.startsWith('data:image/')) {
+    base64 = raw.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '')
+  } else if (/^[A-Za-z0-9+/=\r\n]+$/.test(raw.replace(/\s/g, ''))) {
+    base64 = raw.replace(/\s/g, '')
+  } else {
     return { skip: true, value: raw }
   }
 
-  const base64 = raw.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '')
   if (!base64) {
     throw new Error('Formato de imagem invalido.')
   }

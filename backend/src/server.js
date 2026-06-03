@@ -9,6 +9,7 @@ import { composeDeliveryAddress, normalizeCepDigits, quoteDeliveryFee, usesKmDel
 import { pool, query } from './db.js'
 import multer from 'multer'
 import { normalizeMenuImageBuffer, normalizeMenuImageString } from './menuImage.js'
+import { storedMenuItemHasImage } from './menuImageDecode.js'
 import {
   prefersWebp,
   resolveImageVariant,
@@ -159,8 +160,7 @@ app.post('/menu-items/process-image', requireAdmin, imageUpload.single('image'),
 })
 
 function rowHasStoredImage(raw) {
-  const value = String(raw || '').trim()
-  return value.length > 32
+  return storedMenuItemHasImage(raw)
 }
 
 function formatMenuItemForList(row, { includeImages = false } = {}) {
