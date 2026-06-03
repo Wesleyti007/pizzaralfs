@@ -775,10 +775,101 @@ app.get('/orders/:id/items', async (req, res) => {
   }
 })
 
+async function updateOrderDeliveryFee(orderId, rawFee) {
+  const fee = Math.max(0, Number(rawFee))
+  if (!Number.isFinite(fee)) {
+    return { status: 400, body: { message: 'Taxa de entrega invalida' } }
+  }
+
+  const existing = await query(
+    `SELECT order_type AS "orderType",
+            items_subtotal AS "itemsSubtotal",
+            payment_method AS "paymentMethod",
+            payment_change_for AS "paymentChangeFor"
+     FROM orders WHERE id = $1`,
+    [orderId],
+  )
+  if (!existing.rows.length) {
+    return { status: 404, body: { message: 'Pedido nao encontrado' } }
+  }
+  const row = existing.rows[0]
+  if (row.orderType !== 'delivery') {
+    return { status: 400, body: { message: 'Taxa de entrega so para pedidos delivery' } }
+  }
+
+  const subtotal = Math.max(0, Number(row.itemsSubtotal) || 0)
+  const totalAmount = Math.round((subtotal + fee) * 100) / 100
+
+  if (row.paymentMethod) {
+    const payment = validateDeliveryPayment({
+      paymentMethod: row.paymentMethod,
+      paymentChangeFor: row.paymentChangeFor,
+      totalAmount,
+    })
+    if (!payment.ok) {
+      return { status: 400, body: { message: payment.message } }
+    }
+  }
+
+  const result = await query(
+    `UPDATE orders
+     SET delivery_fee = $2,
+         total_amount = $3
+     WHERE id = $1
+     RETURNING ${ORDER_RETURNING}`,
+    [orderId, fee, totalAmount],
+  )
+  return { status: 200, body: result.rows[0] }
+}
+
+app.patch('/orders/:id/delivery-fee', async (req, res) => {
+  const orderId = Number(req.params.id)
+  if (!Number.isInteger(orderId)) {
+    return res.status(400).json({ message: 'ID invalido' })
+  }
+
+  try {
+    const outcome = await updateOrderDeliveryFee(
+      orderId,
+      req.body.deliveryFee ?? req.body.delivery_fee,
+    )
+    return res.status(outcome.status).json(outcome.body)
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao atualizar taxa', detail: error.message })
+  }
+})
+
 app.patch('/orders/:id', async (req, res) => {
   const orderId = Number(req.params.id)
   if (!Number.isInteger(orderId)) {
     return res.status(400).json({ message: 'ID invalido' })
+  }
+
+  const rawFee = req.body.deliveryFee ?? req.body.delivery_fee
+  const destinationKeys = [
+    'mesa',
+    'tableNumber',
+    'orderType',
+    'customerName',
+    'customerPhone',
+    'deliveryAddress',
+    'deliveryReference',
+    'paymentMethod',
+    'paymentChangeFor',
+    'totalAmount',
+  ]
+  const hasDestinationPatch = destinationKeys.some((key) => {
+    const value = req.body[key]
+    return value !== undefined && value !== null && value !== ''
+  })
+
+  if (rawFee !== undefined && rawFee !== null && !hasDestinationPatch) {
+    try {
+      const outcome = await updateOrderDeliveryFee(orderId, rawFee)
+      return res.status(outcome.status).json(outcome.body)
+    } catch (error) {
+      return res.status(500).json({ message: 'Erro ao atualizar taxa', detail: error.message })
+    }
   }
 
   const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)

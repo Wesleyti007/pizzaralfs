@@ -100,6 +100,19 @@ export async function patchOrderDetails(apiBaseUrl, orderId, payload) {
   return response.json()
 }
 
+export async function patchOrderDeliveryFee(apiBaseUrl, orderId, deliveryFee) {
+  const response = await fetch(`${apiBaseUrl}/orders/${orderId}/delivery-fee`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ deliveryFee }),
+  })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.message || 'Falha ao atualizar taxa de entrega')
+  }
+  return response.json()
+}
+
 export async function patchOrderStatus(apiBaseUrl, orderId, status) {
   const response = await fetch(`${apiBaseUrl}/orders/${orderId}/status`, {
     method: 'PATCH',

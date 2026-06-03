@@ -32,6 +32,7 @@ import {
   dateInputDaysAgo,
   fetchOrdersReport,
   patchOrderDetails,
+  patchOrderDeliveryFee,
   patchOrderStatus,
   todayDateInputValue,
 } from './orders.js'
@@ -64,7 +65,9 @@ import {
   normalizePhoneDigits,
   saveDeliveryInfoToSession,
   validateDeliveryInfo,
+  isOutskirtDeliveryAddress,
 } from './delivery.js'
+import { DeliveryZoneNotice } from './DeliveryZoneNotice.jsx'
 import {
   formatPaymentSummary,
   isCashPayment,
@@ -1376,6 +1379,7 @@ function OrderPanel({
   deliveryFieldError,
   subtotal,
   deliveryFee,
+  configuredDeliveryFee = 0,
   total,
   observation,
   setObservation,
@@ -1503,6 +1507,10 @@ function OrderPanel({
           {isDelivery && (
             <div className="delivery-fields">
               <p className="delivery-fields-title">Entrega (delivery)</p>
+              <DeliveryZoneNotice
+                configuredDeliveryFee={configuredDeliveryFee}
+                address={deliveryInfo.deliveryAddress}
+              />
               <label className="observation-label" htmlFor={nameId}>
                 Nome <span className="required-mark">*</span>
               </label>
@@ -1642,7 +1650,11 @@ function OrderPanel({
               Subtotal: R$ {subtotal.toFixed(2)}
             </p>
             {isDelivery && (
-              <p className="order-delivery-fee">Taxa de entrega: R$ {deliveryFee.toFixed(2)}</p>
+              <p className="order-delivery-fee">
+                {isOutskirtDeliveryAddress(deliveryInfo.deliveryAddress)
+                  ? 'Taxa de entrega: a confirmar (região fora do perímetro urbano)'
+                  : `Taxa de entrega: R$ ${deliveryFee.toFixed(2)}`}
+              </p>
             )}
             <h3 className="order-total">Total: R$ {total.toFixed(2)}</h3>
           </div>
@@ -2065,7 +2077,11 @@ function HomePage({
     setCart((current) => current.filter((item) => cartLineKey(item) !== lineKey))
   }
 
-  const effectiveDeliveryFee = isDelivery ? fixedDeliveryFee : 0
+  const outskirtDelivery = useMemo(
+    () => isDelivery && isOutskirtDeliveryAddress(deliveryInfo.deliveryAddress),
+    [isDelivery, deliveryInfo.deliveryAddress],
+  )
+  const effectiveDeliveryFee = isDelivery && !outskirtDelivery ? fixedDeliveryFee : 0
 
   const cartTotals = useMemo(
     () => calcCartTotals(cart, { isDelivery, deliveryFee: effectiveDeliveryFee }),
@@ -2342,6 +2358,7 @@ function HomePage({
     deliveryFieldError,
     subtotal,
     deliveryFee: cartDeliveryFee,
+    configuredDeliveryFee: fixedDeliveryFee,
     total,
     observation,
     setObservation,
@@ -2820,6 +2837,78 @@ function ReportsPage() {
         </>
       )}
     </section>
+  )
+}
+
+function OrderDeliveryFeeEditor({ order, busy = false, onSaved }) {
+  const subtotal = Math.max(0, Number(order.itemsSubtotal) || 0)
+  const [feeInput, setFeeInput] = useState(() => formatPriceForInput(order.deliveryFee))
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => {
+    setFeeInput(formatPriceForInput(order.deliveryFee))
+    setFormError('')
+  }, [order.id, order.deliveryFee])
+
+  const parsedFee = parsePriceInput(feeInput)
+  const feeValid = !Number.isNaN(parsedFee) && parsedFee >= 0
+  const previewFee = feeValid ? parsedFee : Math.max(0, Number(order.deliveryFee) || 0)
+  const previewTotal = subtotal + previewFee
+  const currentFee = Math.max(0, Number(order.deliveryFee) || 0)
+  const feeUnchanged = feeValid && Math.abs(parsedFee - currentFee) < 0.009
+
+  const handleSave = async () => {
+    if (!feeValid) {
+      setFormError('Informe uma taxa válida (use 0,00 se não houver cobrança).')
+      return
+    }
+    setSaving(true)
+    setFormError('')
+    try {
+      const updated = await patchOrderDeliveryFee(API_BASE_URL, order.id, parsedFee)
+      onSaved(updated)
+    } catch (saveError) {
+      setFormError(formatApiError(saveError, 'Não foi possível salvar a taxa.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="orders-delivery-fee-editor">
+      <p className="orders-delivery-fee-title">Taxa de entrega deste pedido</p>
+      <p className="orders-delivery-fee-breakdown">
+        Subtotal itens: {formatOrderMoney(subtotal)}
+        {' · '}
+        Total com taxa: <strong>{formatOrderMoney(previewTotal)}</strong>
+      </p>
+      <label className="orders-delivery-fee-field">
+        Taxa (R$)
+        <div className="price-input-wrap">
+          <span className="price-prefix" aria-hidden="true">
+            R$
+          </span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={feeInput}
+            disabled={busy || saving}
+            onChange={(event) => setFeeInput(applyPriceMask(event.target.value))}
+            placeholder="0,00"
+          />
+        </div>
+      </label>
+      {formError && <p className="orders-page-error">{formError}</p>}
+      <button
+        type="button"
+        className="admin-btn admin-btn-outline"
+        disabled={busy || saving || feeUnchanged}
+        onClick={handleSave}
+      >
+        {saving ? 'Salvando...' : 'Salvar taxa'}
+      </button>
+    </div>
   )
 }
 
@@ -3395,13 +3484,21 @@ function OrdersPage() {
 
                 <p className="orders-card-total">
                   {formatOrderMoney(order.totalAmount)}
-                  {Number(order.deliveryFee) > 0 && (
+                  {isDeliveryOrder(order.tableNumber, order.orderType) && (
                     <span className="orders-card-fee-note">
                       {' '}
-                      (inclui taxa {formatOrderMoney(order.deliveryFee)})
+                      (subtotal {formatOrderMoney(order.itemsSubtotal)} + taxa{' '}
+                      {formatOrderMoney(order.deliveryFee)})
                     </span>
                   )}
                 </p>
+                {isDeliveryOrder(order.tableNumber, order.orderType) && !cancelled ? (
+                  <OrderDeliveryFeeEditor
+                    order={order}
+                    busy={busy}
+                    onSaved={(updated) => updateOrderInList(order.id, updated)}
+                  />
+                ) : null}
                 {editingOrderId === order.id ? (
                   <OrderDestinationEditor
                     order={order}
@@ -4533,15 +4630,18 @@ function AdminDeliverySettings({ deliverySettings, saveDeliverySettings }) {
       <header className="admin-panel-header">
         <h3>Taxa de entrega</h3>
         <p>
-          Valor fixo somado a cada pedido delivery no cardápio.
+          Valor fixo somado a cada pedido delivery no <strong>perímetro urbano</strong>. Para Coxos,
+          Gregório, Jacurici e Barragem o cliente vê aviso para consultar a taxa.
         </p>
       </header>
 
       <form onSubmit={handleSubmit} className="admin-delivery-settings-form">
         <div className="admin-delivery-card admin-delivery-card--km">
-          <h4 className="admin-delivery-card-title">Taxa fixa por pedido</h4>
+          <h4 className="admin-delivery-card-title">Taxa fixa por pedido (perímetro urbano)</h4>
           <p className="admin-delivery-card-desc">
-            Aparece no carrinho como &quot;Taxa de entrega&quot;. Use 0,00 se a entrega for grátis.
+            Aparece no carrinho como &quot;Taxa de entrega&quot; para o perímetro urbano. Use 0,00 se a
+            entrega for grátis. Coxos, Gregório, Jacurici e Barragem: o cliente vê aviso para
+            consultar a taxa (não entra no total automaticamente).
           </p>
           <label className="price-field field-full">
             <span className="field-label">Taxa de entrega (R$)</span>

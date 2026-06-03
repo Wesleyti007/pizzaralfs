@@ -7,6 +7,22 @@ import {
 
 export const DELIVERY_INFO_STORAGE_KEY = 'pizza-ralfs-delivery-info'
 
+/** Regiões fora do perímetro urbano — taxa de entrega a confirmar com o restaurante. */
+export const DELIVERY_CONSULT_AREAS = ['Coxos', 'Gregório', 'Jacurici', 'Barragem']
+
+function normalizeForAreaMatch(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+export function isOutskirtDeliveryAddress(address) {
+  const haystack = normalizeForAreaMatch(address)
+  if (!haystack) return false
+  return DELIVERY_CONSULT_AREAS.some((area) => haystack.includes(normalizeForAreaMatch(area)))
+}
+
 const EMPTY_DELIVERY = {
   customerName: '',
   customerPhone: '',

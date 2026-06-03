@@ -2302,6 +2302,39 @@ body.home-splash-active .brand-header {
   color: var(--brand-text-muted);
 }
 
+.delivery-zone-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
+  background: rgba(255, 248, 235, 0.85);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--brand-text-muted);
+}
+
+.delivery-zone-notice-title {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--brand-red-deep);
+}
+
+.delivery-zone-notice p {
+  margin: 0 0 6px;
+}
+
+.delivery-zone-notice-list {
+  margin: 0 0 6px;
+  padding-left: 1.15rem;
+}
+
+.delivery-zone-notice-warn {
+  margin: 4px 0 0 !important;
+  font-weight: 600;
+  color: var(--brand-red-deep);
+}
+
 .delivery-fields-row {
   display: grid;
   grid-template-columns: 1fr 72px;
@@ -2350,6 +2383,41 @@ body.home-splash-active .brand-header {
   margin: 0;
   font-size: 0.88rem;
   color: var(--brand-text-muted);
+}
+
+.orders-delivery-fee-editor {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px dashed rgba(197, 160, 89, 0.55);
+  background: rgba(255, 252, 245, 0.9);
+  display: grid;
+  gap: 8px;
+}
+
+.orders-delivery-fee-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--brand-red-deep);
+}
+
+.orders-delivery-fee-breakdown {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--brand-text-muted);
+}
+
+.orders-delivery-fee-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  max-width: 200px;
+}
+
+.orders-delivery-fee-field input {
+  font-weight: 400;
 }
 
 .order-destination-editor {
