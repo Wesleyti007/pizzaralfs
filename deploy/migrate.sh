@@ -25,6 +25,7 @@ MIGRATIONS=(
   migrate_orders_waiter_name.sql
   migrate_menu_item_options.sql
   migrate_cash_closings.sql
+  migrate_orders_open.sql
 )
 
 psql_exec() {

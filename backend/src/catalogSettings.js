@@ -1,5 +1,10 @@
 import { normalizeCepDigits } from './deliveryKm.js'
 
+function parseOrdersOpen(value) {
+  if (value === false || value === 'false' || value === 0 || value === '0') return false
+  return true
+}
+
 function rowToSettings(row = {}) {
   return {
     deliveryFee: Math.max(0, Number(row.deliveryFee) || 0),
@@ -10,6 +15,7 @@ function rowToSettings(row = {}) {
     establishmentCity: String(row.establishmentCity || '').trim(),
     establishmentState: String(row.establishmentState || '').trim(),
     deliveryPricePerKm: Math.max(0, Number(row.deliveryPricePerKm) || 0),
+    ordersOpen: parseOrdersOpen(row.ordersOpen),
   }
 }
 
@@ -23,7 +29,8 @@ export async function loadCatalogSettings(query) {
               establishment_neighborhood AS "establishmentNeighborhood",
               establishment_city AS "establishmentCity",
               establishment_state AS "establishmentState",
-              delivery_price_per_km AS "deliveryPricePerKm"
+              delivery_price_per_km AS "deliveryPricePerKm",
+              orders_open AS "ordersOpen"
        FROM catalog_settings WHERE id = 1`,
     )
     return rowToSettings(result.rows[0])
@@ -33,25 +40,18 @@ export async function loadCatalogSettings(query) {
 }
 
 export async function saveCatalogSettings(query, raw) {
-  const settings = rowToSettings({
-    deliveryFee: raw?.deliveryFee,
-    establishmentCep: raw?.establishmentCep,
-    establishmentStreet: raw?.establishmentStreet,
-    establishmentNumber: raw?.establishmentNumber,
-    establishmentNeighborhood: raw?.establishmentNeighborhood,
-    establishmentCity: raw?.establishmentCity,
-    establishmentState: raw?.establishmentState,
-    deliveryPricePerKm: raw?.deliveryPricePerKm,
-  })
+  const current = await loadCatalogSettings(query)
+  const merged = { ...current, ...(raw && typeof raw === 'object' ? raw : {}) }
+  const settings = rowToSettings(merged)
 
   await query(
     `INSERT INTO catalog_settings (
        id, categories, delivery_fee,
        establishment_cep, establishment_street, establishment_number,
        establishment_neighborhood, establishment_city, establishment_state,
-       delivery_price_per_km, updated_at
+       delivery_price_per_km, orders_open, updated_at
      )
-     VALUES (1, '[]'::jsonb, $1, $2, $3, $4, $5, $6, $7, $8, NOW())
+     VALUES (1, '[]'::jsonb, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
      ON CONFLICT (id)
      DO UPDATE SET
        delivery_fee = EXCLUDED.delivery_fee,
@@ -62,6 +62,7 @@ export async function saveCatalogSettings(query, raw) {
        establishment_city = EXCLUDED.establishment_city,
        establishment_state = EXCLUDED.establishment_state,
        delivery_price_per_km = EXCLUDED.delivery_price_per_km,
+       orders_open = EXCLUDED.orders_open,
        updated_at = NOW()`,
     [
       settings.deliveryFee,
@@ -72,6 +73,7 @@ export async function saveCatalogSettings(query, raw) {
       settings.establishmentCity,
       settings.establishmentState,
       settings.deliveryPricePerKm,
+      settings.ordersOpen,
     ],
   )
 

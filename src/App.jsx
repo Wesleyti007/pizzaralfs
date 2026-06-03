@@ -83,6 +83,7 @@ export const DEFAULT_DELIVERY_SETTINGS = {
   establishmentCity: '',
   establishmentState: '',
   deliveryPricePerKm: 0,
+  ordersOpen: true,
 }
 import {
   DEFAULT_CATEGORIES,
@@ -612,6 +613,7 @@ function App() {
             ...settings,
             deliveryFee: Math.max(0, Number(settings.deliveryFee) || 0),
             deliveryPricePerKm: Math.max(0, Number(settings.deliveryPricePerKm) || 0),
+            ordersOpen: settings.ordersOpen !== false,
           })
         }
 
@@ -1480,6 +1482,7 @@ function OrderPanel({
   isSubmittingOrder,
   orderMessage,
   cartMinOrderMessage,
+  storeClosedMessage = '',
   changeQuantity,
   removeFromCart,
   finalizeOrder,
@@ -1762,13 +1765,24 @@ function OrderPanel({
             onChange={(event) => setObservation(event.target.value)}
             placeholder="Ex: sem cebola, massa bem assada, trocar refrigerante..."
           />
+          {storeClosedMessage ? (
+            <p className="order-message order-message--warn store-closed-order-msg" role="alert">
+              {storeClosedMessage}
+            </p>
+          ) : null}
           <button
             type="button"
             className="btn-primary"
             onClick={finalizeOrder}
             disabled={cart.length === 0 || isSubmittingOrder || !canFinalize}
           >
-            {isSubmittingOrder ? 'Enviando...' : isDelivery ? 'Finalizar delivery' : 'Finalizar pedido'}
+            {isSubmittingOrder
+              ? 'Enviando...'
+              : !storeClosedMessage
+                ? isDelivery
+                  ? 'Finalizar delivery'
+                  : 'Finalizar pedido'
+                : 'Pedidos fechados'}
           </button>
           {cartMinOrderMessage && (
             <p className="order-message order-message--warn">{cartMinOrderMessage}</p>
@@ -2199,9 +2213,15 @@ function HomePage({
     () => validateCartMinOrderQty(cart, categories),
     [cart, categories],
   )
+  const storeOrdersOpen = deliverySettings.ordersOpen !== false
   const canFinalize =
-    cartMinOrderValidation.ok && (!isDelivery || deliveryValidation.ok)
+    storeOrdersOpen &&
+    cartMinOrderValidation.ok &&
+    (!isDelivery || deliveryValidation.ok)
   const cartMinOrderMessage = cartMinOrderValidation.ok ? '' : cartMinOrderValidation.message
+  const storeClosedMessage = storeOrdersOpen
+    ? ''
+    : 'No momento não estamos aceitando pedidos. A pizzaria está fechada.'
   const deliveryFieldErrors = useMemo(() => {
     if (!isDelivery || cart.length === 0) return {}
     if (deliveryValidation.ok) return {}
@@ -2268,6 +2288,11 @@ function HomePage({
 
   const finalizeOrder = async () => {
     if (cart.length === 0 || isSubmittingOrder) return
+
+    if (!storeOrdersOpen) {
+      setOrderMessage(storeClosedMessage)
+      return
+    }
 
     const minCheck = validateCartMinOrderQty(cart, categories)
     if (!minCheck.ok) {
@@ -2483,6 +2508,7 @@ function HomePage({
     isSubmittingOrder,
     orderMessage,
     cartMinOrderMessage,
+    storeClosedMessage,
     changeQuantity,
     removeFromCart,
     finalizeOrder,
@@ -2591,10 +2617,22 @@ function HomePage({
       className={`home-page${splashPhase === 'visible' ? ' home-page--splash-pending' : ''}`}
       aria-hidden={splashPhase === 'visible'}
     >
+      {!storeOrdersOpen ? (
+        <div className="store-closed-banner" role="alert">
+          <strong>Pizzaria fechada</strong>
+          <span>
+            {isWaiter
+              ? 'Pedidos bloqueados — abra a loja no admin para enviar pedidos.'
+              : 'No momento não estamos aceitando pedidos pelo cardápio.'}
+          </span>
+        </div>
+      ) : null}
       <p className="home-intro">
         {isWaiter
           ? 'Monte o pedido da mesa — itens vão direto para a cozinha'
-          : 'Escolha seus itens e monte seu pedido'}
+          : storeOrdersOpen
+            ? 'Escolha seus itens e monte seu pedido'
+            : 'Você pode ver o cardápio, mas os pedidos estão temporariamente fechados.'}
       </p>
       <p className="catalog-images-disclaimer catalog-images-disclaimer--global" role="note">
         <span className="catalog-images-disclaimer-label">Imagens ilustrativas</span>
@@ -4686,6 +4724,58 @@ const ADMIN_SECTIONS = [
   { id: 'qrcodes', label: 'QR Codes', hint: 'Mesas' },
 ]
 
+function AdminOrdersOpenPanel({ deliverySettings, saveDeliverySettings }) {
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const isOpen = deliverySettings.ordersOpen !== false
+
+  const handleToggle = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      await saveDeliverySettings({
+        ...deliverySettings,
+        ordersOpen: !isOpen,
+      })
+    } catch (toggleError) {
+      setError(
+        toggleError instanceof Error
+          ? toggleError.message
+          : 'Não foi possível atualizar o status da loja.',
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section
+      className={`admin-orders-open${isOpen ? ' admin-orders-open--on' : ' admin-orders-open--off'}`}
+      aria-live="polite"
+    >
+      <div className="admin-orders-open-copy">
+        <span className={`admin-orders-open-badge${isOpen ? ' is-on' : ' is-off'}`}>
+          {isOpen ? 'Loja aberta' : 'Loja fechada'}
+        </span>
+        <p>
+          {isOpen
+            ? 'Clientes e mesas podem enviar pedidos pelo cardápio.'
+            : 'Pedidos bloqueados no site. O cardápio continua visível, mas não finaliza pedidos.'}
+        </p>
+      </div>
+      <button
+        type="button"
+        className={`admin-btn${isOpen ? ' admin-btn-outline' : ' admin-btn-primary'}`}
+        onClick={() => void handleToggle()}
+        disabled={saving}
+      >
+        {saving ? 'Salvando...' : isOpen ? 'Fechar para pedidos' : 'Abrir para pedidos'}
+      </button>
+      {error ? <p className="admin-orders-open-error">{error}</p> : null}
+    </section>
+  )
+}
+
 function AdminDeliveryConfigBanner({ deliverySettings, onOpenSettings }) {
   const fee = Math.max(0, Number(deliverySettings.deliveryFee) || 0)
   const configured = fee > 0
@@ -5736,6 +5826,10 @@ function AdminPage({
       <header className="admin-page-header">
         <h2>Painel Admin</h2>
         <p>Use as abas: novo item, itens, entrega (taxa fixa), categorias ou QR Codes.</p>
+        <AdminOrdersOpenPanel
+          deliverySettings={deliverySettings}
+          saveDeliverySettings={saveDeliverySettings}
+        />
         <AdminDeliveryConfigBanner
           deliverySettings={deliverySettings}
           onOpenSettings={() => setAdminTab('entrega')}

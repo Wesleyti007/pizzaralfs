@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS catalog_settings (
   establishment_city TEXT NOT NULL DEFAULT '',
   establishment_state TEXT NOT NULL DEFAULT '',
   delivery_price_per_km NUMERIC(10,2) NOT NULL DEFAULT 0,
+  orders_open BOOLEAN NOT NULL DEFAULT TRUE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

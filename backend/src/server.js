@@ -488,6 +488,21 @@ function validateDeliveryFields({
 }
 
 app.post('/orders', orderCreateRateLimit, async (req, res) => {
+  try {
+    const catalogSettings = await loadCatalogSettings(query)
+    if (!catalogSettings.ordersOpen) {
+      return res.status(403).json({
+        message:
+          'No momento nao estamos aceitando pedidos. A pizzaria esta fechada — tente novamente mais tarde.',
+      })
+    }
+  } catch (error) {
+    return res.status(500).json({
+      message: 'Erro ao verificar se a loja esta aberta',
+      detail: error.message,
+    })
+  }
+
   const { observation, items } = req.body
   const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
   const orderType = resolveOrderType(tableNumber, req.body.orderType)
