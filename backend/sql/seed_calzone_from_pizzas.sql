@@ -4,7 +4,7 @@
 --   ./scripts/seed-calzone.sh --production
 --
 -- Regras:
---   - Categoria calzone com subcategorias: salgadas, doces
+--   - Categoria calzone (label Calzone) com subcategorias: salgadas, doces
 --   - Um item por sabor de pizza (mesmo nome)
 --   - Tamanhos: Pequeno R$ 17, Grande R$ 24 (sabor único)
 --   - Doces: subcategoria doces nas pizzas ou nome com indício de doce
@@ -17,15 +17,8 @@ DECLARE
   cats jsonb;
   filtered jsonb := '[]'::jsonb;
   elem jsonb;
-  calzone jsonb := jsonb_build_object(
-    'id', 'calzone',
-    'label', 'Calzone',
-    'minOrderQty', 1,
-    'subcategories', jsonb_build_array(
-      jsonb_build_object('id', 'salgadas', 'label', 'Salgadas', 'minOrderQty', 1),
-      jsonb_build_object('id', 'doces', 'label', 'Doces', 'minOrderQty', 1)
-    )
-  );
+  calzone_id text := 'calzone';
+  calzone jsonb;
 BEGIN
   SELECT categories INTO cats FROM catalog_settings WHERE id = 1;
 
@@ -33,9 +26,29 @@ BEGIN
     cats := '[]'::jsonb;
   END IF;
 
+  SELECT cat_elem->>'id'
+  INTO calzone_id
+  FROM jsonb_array_elements(cats) AS cat_elem
+  WHERE lower(trim(cat_elem->>'id')) = 'calzone'
+  LIMIT 1;
+
+  IF calzone_id IS NULL OR trim(calzone_id) = '' THEN
+    calzone_id := 'calzone';
+  END IF;
+
+  calzone := jsonb_build_object(
+    'id', calzone_id,
+    'label', 'Calzone',
+    'minOrderQty', 1,
+    'subcategories', jsonb_build_array(
+      jsonb_build_object('id', 'salgadas', 'label', 'Salgadas', 'minOrderQty', 1),
+      jsonb_build_object('id', 'doces', 'label', 'Doces', 'minOrderQty', 1)
+    )
+  );
+
   FOR elem IN SELECT value FROM jsonb_array_elements(cats)
   LOOP
-    IF elem->>'id' IS DISTINCT FROM 'calzone' THEN
+    IF lower(trim(elem->>'id')) IS DISTINCT FROM 'calzone' THEN
       filtered := filtered || jsonb_build_array(elem);
     END IF;
   END LOOP;
@@ -50,7 +63,7 @@ BEGIN
 END $$;
 
 -- Remove calzones antigos para poder rodar o script de novo
-DELETE FROM menu_items WHERE category = 'calzone';
+DELETE FROM menu_items WHERE lower(trim(category)) = 'calzone';
 
 -- Cria calzones espelhando pizzas ativas
 INSERT INTO menu_items (
@@ -67,7 +80,14 @@ INSERT INTO menu_items (
   min_order_qty
 )
 SELECT
-  'calzone',
+  COALESCE(
+    (SELECT c->>'id'
+     FROM catalog_settings cs,
+          jsonb_array_elements(cs.categories) AS c
+     WHERE lower(trim(c->>'id')) = 'calzone'
+     LIMIT 1),
+    'calzone'
+  ),
   CASE
     WHEN p.subcategory IN ('doces', 'doce')
       OR lower(COALESCE(p.subcategory, '')) LIKE '%doce%'
@@ -107,12 +127,12 @@ COMMIT;
 -- Conferência
 SELECT subcategory, COUNT(*) AS itens
 FROM menu_items
-WHERE category = 'calzone'
+WHERE lower(trim(category)) = 'calzone'
 GROUP BY subcategory
 ORDER BY subcategory;
 
 SELECT id, subcategory, name, price, sizes
 FROM menu_items
-WHERE category = 'calzone'
+WHERE lower(trim(category)) = 'calzone'
 ORDER BY subcategory, name
 LIMIT 20;

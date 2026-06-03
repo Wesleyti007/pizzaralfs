@@ -19,4 +19,6 @@ const b64 = fs.readFileSync(imagePath).toString('base64')
 const dataUrl = `data:image/png;base64,${b64}`
 const escaped = dataUrl.replace(/'/g, "''")
 
-console.log(`UPDATE menu_items SET image_base64 = '${escaped}' WHERE category = 'calzone';`)
+console.log(
+  `UPDATE menu_items SET image_base64 = '${escaped}' WHERE lower(trim(category)) = 'calzone';`,
+)

@@ -22,7 +22,24 @@ if [[ ! -f "$ROOT/public/calzone-default.png" ]]; then
   exit 1
 fi
 
-node "$ROOT/scripts/update-calzone-images.mjs" >"$IMAGE_SQL"
+write_image_sql() {
+  if command -v node >/dev/null 2>&1; then
+    node "$ROOT/scripts/update-calzone-images.mjs" >"$IMAGE_SQL"
+    return
+  fi
+  if [[ "$PRODUCTION" == true ]] && [[ -d "${DEPLOY_DIR:-/opt/pizza-ralfs/deploy}" ]]; then
+    (
+      cd "${DEPLOY_DIR:-/opt/pizza-ralfs/deploy}"
+      docker compose run --rm -v "$ROOT:/work" -w /work node:20-alpine \
+        node scripts/update-calzone-images.mjs
+    ) >"$IMAGE_SQL"
+    return
+  fi
+  echo "ERRO: Node.js não encontrado para gerar SQL da imagem."
+  exit 1
+}
+
+write_image_sql
 
 if [[ "$PRODUCTION" == true ]]; then
   DEPLOY_DIR="${DEPLOY_DIR:-/opt/pizza-ralfs/deploy}"
