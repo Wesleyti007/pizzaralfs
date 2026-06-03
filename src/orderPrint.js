@@ -373,6 +373,8 @@ function waitForPrintDocument(doc) {
   })
 }
 
+export { waitForPrintDocument }
+
 export function printOrderDocument(order, items) {
   return new Promise((resolve) => {
     const iframe = document.createElement('iframe')

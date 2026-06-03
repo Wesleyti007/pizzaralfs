@@ -730,8 +730,18 @@ export function normalizeMenuItemSizes(item) {
 }
 
 export function normalizeMenuItemCategories(item, categories) {
-  const activeCategory = resolveActiveCategory(categories, item.category)
-  const category = findCategory(categories, activeCategory)
+  const rawCategory = String(item.category ?? '').trim()
+  let categoryId = rawCategory
+
+  if (!categoryId) {
+    categoryId = resolveActiveCategory(categories, categoryId)
+  } else if (!findCategory(categories, categoryId)) {
+    // Mantém o id do banco para o admin listar em "Sem categoria cadastrada"
+    // até as categorias da API/localStorage sincronizarem.
+    categoryId = rawCategory
+  }
+
+  const category = findCategory(categories, categoryId)
   let subcategory = String(item.subcategory || '').trim()
 
   if (!category?.subcategories?.length) {
@@ -742,7 +752,7 @@ export function normalizeMenuItemCategories(item, categories) {
 
   return {
     ...item,
-    category: activeCategory,
+    category: categoryId,
     subcategory,
   }
 }

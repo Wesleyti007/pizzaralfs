@@ -46,6 +46,7 @@ import { printOrderDocument } from './orderPrint.js'
 import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
 import { CatalogCardImage } from './CatalogCardImage.jsx'
+import { CashClosePanel } from './CashClosePanel.jsx'
 import {
   adminMenuPreviewSrc,
   menuItemImageSrc,
@@ -529,6 +530,12 @@ function App() {
           if (!(adminMode && categoriesDirtyRef.current)) {
             setCategories(nextCategories)
             localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(nextCategories))
+            setMenuItems((current) => {
+              if (!current.length) return current
+              const realigned = normalizeMenuItems(current, nextCategories)
+              persistMenuItems(realigned)
+              return realigned
+            })
           }
         }
 
@@ -692,7 +699,8 @@ function App() {
       if (!response.ok) {
         throw new Error('Falha ao salvar categorias')
       }
-      const saved = normalizeCategories(await response.json())
+      const body = await response.json()
+      const saved = normalizeCategories(Array.isArray(body) ? body : body.categories)
       categoriesDirtyRef.current = false
       setCategories(saved)
       localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(saved))
@@ -886,7 +894,7 @@ function App() {
                   <AdminPage
                     menuItems={menuItems}
                     categories={categories}
-                    setCategories={setCategories}
+                    setCategories={setCategoriesFromAdmin}
                     saveCategories={saveCategories}
                     createMenuItem={createMenuItem}
                     updateMenuItem={updateMenuItem}
@@ -3209,6 +3217,8 @@ function OrdersPage() {
         </button>
       </header>
 
+      <CashClosePanel />
+
       <section className="orders-alert-panel" aria-label="Alertas de novos pedidos">
         <div className="orders-alert-toggles">
           <label className="orders-alert-toggle">
@@ -5037,6 +5047,18 @@ function AdminPage({
   const [itemSubcategoryFilter, setItemSubcategoryFilter] = useState('all')
   const closeItemModal = () => setItemModal(null)
 
+  useEffect(() => {
+    if (!categories.length) return
+    setNewItemForm((current) => {
+      if (categories.some((category) => category.id === current.category)) return current
+      return {
+        ...current,
+        category: categories[0]?.id || 'pizzas',
+        subcategory: '',
+      }
+    })
+  }, [categories])
+
   const editingMenuItem = useMemo(() => {
     if (editingId == null) return null
     return menuItems.find((item) => normalizeItemId(item.id) === editingId) ?? null
@@ -5336,6 +5358,12 @@ function AdminPage({
     try {
       const payload = await prepareItemPayloadForSave(validation.payload)
       await createMenuItem(payload)
+      setOpenItemsCategoryId(payload.category)
+      if (payload.subcategory) {
+        setOpenItemsSubcategoryKey(`${payload.category}:${payload.subcategory}`)
+      } else {
+        setOpenItemsSubcategoryKey(null)
+      }
       setItemModal({
         variant: 'success',
         title: 'Salvo',
@@ -5491,7 +5519,7 @@ function AdminPage({
           <div role="tabpanel" className="admin-tab-panel">
             <CategoriesAdmin
               categories={categories}
-              setCategories={setCategoriesFromAdmin}
+              setCategories={setCategories}
               saveCategories={saveCategories}
             />
           </div>

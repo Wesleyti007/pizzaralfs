@@ -4516,6 +4516,144 @@ body.home-splash-active .brand-header {
   color: var(--brand-red);
 }
 
+.cash-close-panel {
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid rgba(197, 160, 89, 0.4);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fffdf8 0%, #fff 100%);
+  box-shadow: var(--shadow-card);
+}
+
+.cash-close-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cash-close-panel-head h3 {
+  margin: 0 0 6px;
+  font-family: 'Playfair Display', Georgia, serif;
+  color: var(--brand-dark);
+}
+
+.cash-close-panel-head p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--brand-text-muted);
+}
+
+.cash-close-period {
+  margin: 0 0 12px;
+  font-size: 0.92rem;
+  color: var(--brand-dark);
+}
+
+.cash-close-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.cash-close-notes {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.cash-close-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.cash-close-summary-card {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(197, 160, 89, 0.28);
+  background: #fff;
+  display: grid;
+  gap: 4px;
+}
+
+.cash-close-summary-card--split strong {
+  font-size: 1rem;
+  color: var(--brand-dark);
+}
+
+.cash-close-summary-card--wide {
+  grid-column: 1 / -1;
+}
+
+.cash-close-payment-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.88rem;
+  color: var(--brand-dark);
+}
+
+.cash-close-done {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(34, 120, 70, 0.08);
+  border: 1px solid rgba(34, 120, 70, 0.25);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cash-close-done p {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
+}
+
+.cash-close-history-toggle {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--brand-red);
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.cash-close-history {
+  margin-top: 10px;
+}
+
+.cash-close-history-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.88rem;
+  color: var(--brand-dark);
+}
+
+.cash-close-history-list li + li {
+  margin-top: 6px;
+}
+
+.cash-close-history-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cash-close-history-print {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
 .report-table-block--waiters {
   margin-bottom: 20px;
 }

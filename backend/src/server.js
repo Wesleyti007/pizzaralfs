@@ -17,6 +17,11 @@ import {
 import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
 import { validateOrderItemsMinQty } from './minOrderQty.js'
 import { ensureOrderSchema } from './ensureSchema.js'
+import {
+  buildCashClosePreview,
+  createCashClosing,
+  listCashClosings,
+} from './cashClosing.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options,
   min_order_qty, image_base64 AS image, is_active`
@@ -636,6 +641,48 @@ function parseDateQuery(value, fallback) {
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10)
 }
+
+function parseDateTimeQuery(value) {
+  if (!value) return null
+  const raw = String(value).trim()
+  if (!raw) return null
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed
+}
+
+app.get('/orders/cash-close/preview', async (req, res) => {
+  try {
+    const periodTo = parseDateTimeQuery(req.query.to) ?? new Date()
+    const preview = await buildCashClosePreview(query, periodTo)
+    return res.json(preview)
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao gerar preview do caixa', detail: error.message })
+  }
+})
+
+app.post('/orders/cash-close', async (req, res) => {
+  try {
+    const periodTo = parseDateTimeQuery(req.body?.periodTo) ?? new Date()
+    const notes = String(req.body?.notes ?? '').trim()
+    const result = await createCashClosing(query, { periodTo, notes })
+    if (!result.ok) {
+      return res.status(400).json({ message: result.message })
+    }
+    return res.status(201).json(result)
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao fechar caixa', detail: error.message })
+  }
+})
+
+app.get('/orders/cash-closings', async (req, res) => {
+  try {
+    const closings = await listCashClosings(query, req.query.limit)
+    return res.json(closings)
+  } catch (error) {
+    return res.status(500).json({ message: 'Erro ao listar fechamentos', detail: error.message })
+  }
+})
 
 app.get('/orders/report', async (req, res) => {
   const today = todayIsoDate()
