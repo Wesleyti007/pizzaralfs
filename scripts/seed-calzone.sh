@@ -28,11 +28,8 @@ write_image_sql() {
     return
   fi
   if [[ "$PRODUCTION" == true ]] && [[ -d "${DEPLOY_DIR:-/opt/pizza-ralfs/deploy}" ]]; then
-    (
-      cd "${DEPLOY_DIR:-/opt/pizza-ralfs/deploy}"
-      docker compose run --rm -v "$ROOT:/work" -w /work node:20-alpine \
-        node scripts/update-calzone-images.mjs
-    ) >"$IMAGE_SQL"
+    docker run --rm -v "$ROOT:/work" -w /work node:20-alpine \
+      node scripts/update-calzone-images.mjs >"$IMAGE_SQL"
     return
   fi
   echo "ERRO: Node.js não encontrado para gerar SQL da imagem."
