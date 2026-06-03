@@ -426,12 +426,82 @@ body.home-splash-active .brand-header {
   align-items: flex-start;
 }
 
+.order-success-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  padding-top: calc(20px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+
+.order-success-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: rgba(28, 22, 20, 0.55);
+  cursor: pointer;
+}
+
+.order-success-overlay-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 380px);
+  padding: 22px 20px;
+  border-radius: 16px;
+  background: #fff;
+  border: 2px solid rgba(22, 101, 52, 0.45);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  display: grid;
+  gap: 10px;
+  text-align: center;
+  animation: order-toast-in 0.35s ease both;
+}
+
+.order-success-overlay-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #166534;
+  line-height: 1.3;
+}
+
+.order-success-overlay-title::before {
+  content: '✓ ';
+}
+
+.order-success-overlay-meta {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--brand-text-muted);
+  font-weight: 600;
+}
+
+.order-success-overlay-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--brand-text-muted);
+  line-height: 1.4;
+}
+
+.order-success-overlay-card .btn-primary {
+  margin-top: 4px;
+  justify-self: center;
+  min-width: 140px;
+}
+
 .order-success-toast {
   position: fixed;
   left: 12px;
   right: 12px;
   bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-  z-index: 1200;
+  z-index: 2400;
   padding: 14px 16px;
   border-radius: 12px;
   background: #166534;

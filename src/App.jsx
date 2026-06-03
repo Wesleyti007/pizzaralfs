@@ -2077,6 +2077,7 @@ function HomePage({
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false)
   const [orderMessage, setOrderMessage] = useState('')
   const [orderToast, setOrderToast] = useState('')
+  const [showOrderSuccessOverlay, setShowOrderSuccessOverlay] = useState(false)
   const [orderOpen, setOrderOpen] = useState(false)
   const lastOrderBannerRef = useRef(null)
   const searchParams = useMemo(
@@ -2193,6 +2194,12 @@ function HomePage({
     const timer = window.setTimeout(() => setOrderToast(''), 8000)
     return () => window.clearTimeout(timer)
   }, [orderToast])
+
+  useEffect(() => {
+    if (!showOrderSuccessOverlay) return undefined
+    const timer = window.setTimeout(() => setShowOrderSuccessOverlay(false), 7000)
+    return () => window.clearTimeout(timer)
+  }, [showOrderSuccessOverlay])
 
   useEffect(() => {
     if (!orderOpen) return undefined
@@ -2329,13 +2336,16 @@ function HomePage({
       setReceiptOrder(orderToSave)
       setOrderSuccessMessage(successText)
       setOrderToast(successText)
+      setShowOrderSuccessOverlay(true)
       setCart([])
       setObservation('')
       setOrderOpen(false)
       setOrderMessage('')
       setDeliveryFieldError('')
       window.requestAnimationFrame(() => {
-        lastOrderBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        window.setTimeout(() => {
+          lastOrderBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 400)
       })
     }
 
@@ -2476,6 +2486,48 @@ function HomePage({
   const orderMobileRoot =
     typeof document !== 'undefined' ? document.getElementById('order-mobile-root') : null
 
+  const dismissOrderSuccess = () => {
+    setShowOrderSuccessOverlay(false)
+    setOrderToast('')
+  }
+
+  const orderSuccessOverlay =
+    typeof document !== 'undefined' &&
+    showOrderSuccessOverlay &&
+    createPortal(
+      <div
+        className="order-success-overlay"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="order-success-title"
+        aria-live="assertive"
+      >
+        <button
+          type="button"
+          className="order-success-overlay-backdrop"
+          aria-label="Fechar aviso de sucesso"
+          onClick={dismissOrderSuccess}
+        />
+        <div className="order-success-overlay-card">
+          <p id="order-success-title" className="order-success-overlay-title">
+            {orderSuccessMessage || 'Pedido feito com sucesso!'}
+          </p>
+          {receiptOrder ? (
+            <p className="order-success-overlay-meta">
+              Pedido #{receiptOrder.id} · Total R$ {receiptOrder.total.toFixed(2)}
+            </p>
+          ) : null}
+          <p className="order-success-overlay-hint">
+            O comprovante em PNG deve baixar automaticamente.
+          </p>
+          <button type="button" className="btn-primary" onClick={dismissOrderSuccess}>
+            OK
+          </button>
+        </div>
+      </div>,
+      document.body,
+    )
+
   const mobileOrderUi =
     orderMobileRoot &&
     createPortal(
@@ -2510,6 +2562,7 @@ function HomePage({
 
   return (
     <>
+    {orderSuccessOverlay}
     {mobileOrderUi}
     <div
       className={`home-page${splashPhase === 'visible' ? ' home-page--splash-pending' : ''}`}
