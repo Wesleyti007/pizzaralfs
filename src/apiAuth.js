@@ -67,18 +67,31 @@ export async function loginAdminWithFallback(
   const localOk =
     user === String(localUser || '').trim() && pass === String(localPassword || '')
 
+  if (!localOk) {
+    try {
+      await loginAdmin(apiBase, user, pass)
+      return { ok: true, fallback: false }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error.message || 'Usuario ou senha invalidos',
+      }
+    }
+  }
+
   try {
     await loginAdmin(apiBase, user, pass)
     return { ok: true, fallback: false }
   } catch (error) {
-    if (localOk && error.apiUnavailable) {
+    if (error.apiUnavailable || !error.status) {
       clearAdminApiToken()
       return { ok: true, fallback: true }
     }
-    return {
-      ok: false,
-      error: error.message || 'Usuario ou senha invalidos',
+    if (error.status === 401) {
+      return { ok: false, error: 'Senha rejeitada pela API. Confira ADMIN_PASSWORD em backend/.env' }
     }
+    clearAdminApiToken()
+    return { ok: true, fallback: true }
   }
 }
 

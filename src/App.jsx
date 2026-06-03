@@ -814,7 +814,13 @@ function App() {
   }
 
   const handleLogin = async (username, password) => {
-    const result = await loginAdminWithFallback(API_BASE_URL, username, password, {
+    const user = String(username || '').trim()
+    const pass = String(password || '')
+    if (user !== ADMIN_USER || pass !== ADMIN_PASSWORD) {
+      return { ok: false, error: 'Usuário ou senha inválidos.' }
+    }
+
+    const result = await loginAdminWithFallback(API_BASE_URL, user, pass, {
       localUser: ADMIN_USER,
       localPassword: ADMIN_PASSWORD,
     })
