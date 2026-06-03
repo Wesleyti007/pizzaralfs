@@ -53,7 +53,9 @@ export function menuItemImageSrc(item, options = {}) {
   const id = item.id
   if (id == null || id === '') return null
   const base = apiBase.replace(/\/$/, '')
-  return `${base}/menu-items/${id}/image?v=${variant}`
+  const rev = String(item.imageRev ?? '').trim()
+  const revQuery = rev ? `&rev=${encodeURIComponent(rev)}` : ''
+  return `${base}/menu-items/${id}/image?v=${variant}${revQuery}`
 }
 
 /** Versão leve para localStorage (sem base64). */
@@ -64,6 +66,7 @@ export function menuItemsForStorage(items) {
     return {
       ...rest,
       hasImage: menuItemHasImage(item),
+      imageRev: String(item.imageRev ?? '').trim(),
       image: '',
     }
   })

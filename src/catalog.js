@@ -382,7 +382,7 @@ export const CALZONE_SIZE_TEMPLATES = [
   { id: 'grande', label: 'Grande', pieces: 1 },
 ]
 
-export const CALZONE_DEFAULT_IMAGE = '/calzone-default.png'
+export const CALZONE_DEFAULT_IMAGE = '/calzone-default.png?rev=1'
 
 export function isPizzaCategory(categoryId) {
   return categoryId === 'pizzas'

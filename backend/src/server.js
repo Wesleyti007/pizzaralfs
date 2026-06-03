@@ -9,7 +9,7 @@ import { composeDeliveryAddress, normalizeCepDigits, quoteDeliveryFee, usesKmDel
 import { pool, query } from './db.js'
 import multer from 'multer'
 import { normalizeMenuImageBuffer, normalizeMenuImageString } from './menuImage.js'
-import { storedMenuItemHasImage } from './menuImageDecode.js'
+import { menuItemImageRevision, storedMenuItemHasImage } from './menuImageDecode.js'
 import {
   prefersWebp,
   resolveImageVariant,
@@ -166,11 +166,14 @@ function rowHasStoredImage(raw) {
 function formatMenuItemForList(row, { includeImages = false } = {}) {
   const item = normalizeMenuItemRow(row)
   const hasImage = rowHasStoredImage(item.image)
+  const imageRev = hasImage
+    ? String(row.image_rev || menuItemImageRevision(item.image) || '')
+    : ''
   if (includeImages) {
-    return { ...item, hasImage }
+    return { ...item, hasImage, imageRev }
   }
   const { image: _image, ...rest } = item
-  return { ...rest, hasImage }
+  return { ...rest, hasImage, imageRev }
 }
 
 app.get('/menu-items', requireAdminForInactiveMenu, async (req, res) => {
@@ -178,7 +181,12 @@ app.get('/menu-items', requireAdminForInactiveMenu, async (req, res) => {
     const includeInactive = req.query.all === '1'
     const includeImages = req.query.includeImages === '1'
     const result = await query(
-      `SELECT ${MENU_ITEM_COLUMNS}
+      `SELECT ${MENU_ITEM_COLUMNS},
+              CASE
+                WHEN length(trim(COALESCE(image_base64, ''))) > 32
+                THEN left(md5(image_base64), 12)
+                ELSE ''
+              END AS image_rev
        FROM menu_items
        ${includeInactive ? '' : 'WHERE is_active = TRUE'}
        ORDER BY id DESC`,
@@ -218,11 +226,19 @@ app.get('/menu-items/:id/image', async (req, res) => {
       return res.status(404).end()
     }
 
+    const contentRev = menuItemImageRevision(result.rows[0].image)
+    const clientRev = String(req.query.rev ?? '').trim()
+
     if (req.headers['if-none-match'] === served.etag) {
       return res.status(304).end()
     }
 
-    res.setHeader('Cache-Control', 'public, max-age=604800, immutable')
+    // URL com ?rev= muda quando a foto muda → cache longo e seguro. Sem rev: revalida rápido.
+    const cacheControl =
+      clientRev && contentRev && clientRev === contentRev
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=120, must-revalidate'
+    res.setHeader('Cache-Control', cacheControl)
     res.setHeader('ETag', served.etag)
     res.setHeader('Vary', 'Accept')
     res.type(served.mime)

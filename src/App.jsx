@@ -406,6 +406,7 @@ function normalizeMenuItems(items, categories) {
       ...normalizeMenuItemOptions(normalizeMenuItemSizes(normalized)),
       id: normalizeItemId(item.id),
       image,
+      imageRev: String(item.imageRev ?? '').trim(),
       hasImage: item.hasImage === true || hasMenuItemImage(image),
       isActive: item.isActive !== false,
     }
@@ -433,6 +434,7 @@ function mergeMenuItemsPreservingImages(freshFromApi, currentItems, categories) 
     const merged = { ...item, image }
     return {
       ...merged,
+      imageRev: String(item.imageRev ?? prev.imageRev ?? '').trim(),
       hasImage:
         hasMenuItemImage(merged) ||
         (item.hasImage === true && Boolean(normalizeItemId(item.id))),

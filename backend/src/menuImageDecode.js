@@ -1,5 +1,11 @@
+import { createHash } from 'crypto'
+
 /** Decodifica imagem armazenada (data URL, base64 cru, URL http(s)). */
 const BASE64_RE = /^[A-Za-z0-9+/=\r\n]+$/
+
+function hashStoredImage(raw) {
+  return createHash('md5').update(raw).digest('hex').slice(0, 12)
+}
 
 function detectImageKind(buffer) {
   if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xd8) return 'jpeg'
@@ -43,7 +49,7 @@ export function decodeMenuItemImagePayload(imageValue) {
   if (!raw) return null
   if (/^https?:\/\//i.test(raw)) {
     if (raw.length < 12) return null
-    return { redirect: raw, cacheKey: `url-${raw.length}` }
+    return { redirect: raw, cacheKey: `url-${hashStoredImage(raw)}` }
   }
   if (raw.length < 64) return null
 
@@ -67,4 +73,11 @@ export function storedMenuItemHasImage(imageValue) {
   if (!raw) return false
   if (/^https?:\/\//i.test(raw)) return raw.length >= 12
   return decodeMenuItemImagePayload(raw) !== null
+}
+
+/** Muda quando o arquivo/URL da imagem no banco muda — usado para cache busting na URL. */
+export function menuItemImageRevision(imageValue) {
+  const raw = String(imageValue || '').trim()
+  if (!storedMenuItemHasImage(raw)) return ''
+  return hashStoredImage(raw)
 }
