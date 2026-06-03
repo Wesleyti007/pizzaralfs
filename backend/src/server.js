@@ -24,6 +24,7 @@ import {
 } from './cashClosing.js'
 import { postAdminLogin, postWaiterLogin, requireAdmin, requireWaiter } from './adminAuth.js'
 import { priceOrderLinesFromDb } from './orderPricing.js'
+import { orderCreateRateLimit } from './rateLimit.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options,
   min_order_qty, image_base64 AS image, is_active`
@@ -75,6 +76,8 @@ const __dirname = path.dirname(__filename)
 
 const app = express()
 const PORT = Number(process.env.PORT || 3001)
+
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 1)
 
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
@@ -484,7 +487,7 @@ function validateDeliveryFields({
   return { ok: true, paymentMethod: payment.paymentMethod, paymentChangeFor: payment.paymentChangeFor }
 }
 
-app.post('/orders', async (req, res) => {
+app.post('/orders', orderCreateRateLimit, async (req, res) => {
   const { observation, items } = req.body
   const tableNumber = parseTableNumberFromBody(req.body.mesa ?? req.body.tableNumber)
   const orderType = resolveOrderType(tableNumber, req.body.orderType)
