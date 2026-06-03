@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { QRCodeSVG } from 'qrcode.react'
+import { TableQrPrintPage } from './TableQrPrintSheet.jsx'
 import {
   BrowserRouter,
   Link,
@@ -998,7 +998,7 @@ function App() {
             <Route element={<ProtectedRoute isAuthenticated={isAuthenticated} />}>
             <Route path="/pedidos" element={<OrdersPage />} />
             <Route path="/relatorios" element={<ReportsPage />} />
-            <Route path="/qrcodes" element={<QrCodesPage tables={tables} />} />
+            <Route path="/qrcodes" element={<TableQrPrintPage tables={tables} />} />
             </Route>
             <Route path="*" element={<UnknownRoutePage />} />
           </Routes>
@@ -3798,32 +3798,6 @@ function OrdersPage() {
   )
 }
 
-function QrCodesPage({ tables }) {
-  const baseUrl = window.location.origin
-
-  return (
-    <section className="qr-page">
-      <h2>QR Codes das Mesas</h2>
-      <p>Imprima e cole um QR em cada mesa ativa.</p>
-
-      <div className="qr-grid">
-        {tables.map((tableNum) => {
-          const url = `${baseUrl}/?mesa=${tableNum}`
-          return (
-            <article key={tableNum} className="qr-card">
-              <h3>Mesa {tableNum}</h3>
-              <QRCodeSVG value={url} size={140} />
-              <a href={url} target="_blank" rel="noreferrer">
-                Abrir link da mesa
-              </a>
-            </article>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
 const emptyItemForm = {
   category: 'pizzas',
   subcategory: '',
@@ -5280,7 +5254,7 @@ function AdminTablesSection({ tables, tableNumber, setTableNumber, onAddTable, o
           Adicionar mesa
         </button>
         <Link to="/qrcodes" className="admin-btn admin-btn-outline admin-link-btn">
-          Abrir página de QR Codes
+          Imprimir QR Codes (A4)
         </Link>
       </form>
 
