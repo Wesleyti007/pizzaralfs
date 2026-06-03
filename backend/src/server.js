@@ -22,7 +22,7 @@ import {
   createCashClosing,
   listCashClosings,
 } from './cashClosing.js'
-import { postAdminLogin, requireAdmin } from './adminAuth.js'
+import { postAdminLogin, postWaiterLogin, requireAdmin, requireWaiter } from './adminAuth.js'
 import { priceOrderLinesFromDb } from './orderPricing.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options,
@@ -81,6 +81,10 @@ app.use(express.json({ limit: '10mb' }))
 
 app.post('/auth/admin', postAdminLogin)
 app.get('/auth/verify', requireAdmin, (_req, res) => {
+  res.json({ ok: true })
+})
+app.post('/auth/waiter', postWaiterLogin)
+app.get('/auth/waiter/verify', requireWaiter, (_req, res) => {
   res.json({ ok: true })
 })
 
@@ -333,7 +337,7 @@ app.put('/menu-items/:id', requireAdmin, async (req, res) => {
   }
 })
 
-app.patch('/menu-items/:id/active', async (req, res) => {
+app.patch('/menu-items/:id/active', requireAdmin, async (req, res) => {
   const itemId = Number(req.params.id)
   if (!Number.isInteger(itemId)) {
     return res.status(400).json({ message: 'ID invalido' })

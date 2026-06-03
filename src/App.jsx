@@ -151,10 +151,6 @@ const AUTH_STORAGE_KEY = 'pizza-ralfs-auth'
 const WAITER_AUTH_STORAGE_KEY = 'pizza-ralfs-waiter-auth'
 const ADMIN_PATH = '/admin/ralfs'
 const GARCOM_PATH = '/garcom'
-const ADMIN_USER = String(import.meta.env.VITE_ADMIN_USER || 'admin').trim()
-const ADMIN_PASSWORD = String(import.meta.env.VITE_ADMIN_PASSWORD || '25364758@Cd').trim()
-const WAITER_USER = String(import.meta.env.VITE_WAITER_USER || 'garcom').trim()
-const WAITER_PASSWORD = String(import.meta.env.VITE_WAITER_PASSWORD || 'ralfsgarcom@26').trim()
 const HOME_SPLASH_MS = 4000
 const HOME_SPLASH_FADE_MS = 400
 import { API_BASE_URL } from './apiBaseUrl.js'
@@ -162,9 +158,13 @@ import {
   adminFetch,
   CATALOG_CACHE_VERSION,
   clearAdminApiToken,
+  clearWaiterApiToken,
   getAdminApiToken,
-  loginAdminWithFallback,
+  getWaiterApiToken,
+  loginAdmin,
+  loginWaiter,
   verifyAdminSession,
+  verifyWaiterSession,
 } from './apiAuth.js'
 const LOGO_URL = '/logo-ralfs-web.png'
 const DEVELOPER_LINKEDIN_URL =
@@ -529,9 +529,9 @@ function App() {
     if (localStorage.getItem(AUTH_STORAGE_KEY) !== 'true') return undefined
     let cancelled = false
 
-    const token = getAdminApiToken()
-    if (!token) {
-      setIsAuthenticated(true)
+    if (!getAdminApiToken()) {
+      setIsAuthenticated(false)
+      localStorage.removeItem(AUTH_STORAGE_KEY)
       return undefined
     }
 
@@ -540,6 +540,28 @@ function App() {
       setIsAuthenticated(ok)
       if (!ok) {
         localStorage.removeItem(AUTH_STORAGE_KEY)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (localStorage.getItem(WAITER_AUTH_STORAGE_KEY) !== 'true') return undefined
+    let cancelled = false
+
+    if (!getWaiterApiToken()) {
+      setIsWaiterAuthenticated(false)
+      localStorage.removeItem(WAITER_AUTH_STORAGE_KEY)
+      return undefined
+    }
+
+    verifyWaiterSession(API_BASE_URL).then((ok) => {
+      if (cancelled) return
+      setIsWaiterAuthenticated(ok)
+      if (!ok) {
+        localStorage.removeItem(WAITER_AUTH_STORAGE_KEY)
       }
     })
     return () => {
@@ -814,22 +836,17 @@ function App() {
   }
 
   const handleLogin = async (username, password) => {
-    const user = String(username || '').trim()
-    const pass = String(password || '')
-    if (user !== ADMIN_USER || pass !== ADMIN_PASSWORD) {
-      return { ok: false, error: 'Usuário ou senha inválidos.' }
+    try {
+      await loginAdmin(API_BASE_URL, String(username || '').trim(), String(password || ''))
+      setIsAuthenticated(true)
+      localStorage.setItem(AUTH_STORAGE_KEY, 'true')
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error.message || 'Usuário ou senha inválidos.',
+      }
     }
-
-    const result = await loginAdminWithFallback(API_BASE_URL, user, pass, {
-      localUser: ADMIN_USER,
-      localPassword: ADMIN_PASSWORD,
-    })
-    if (!result.ok) {
-      return { ok: false, error: result.error }
-    }
-    setIsAuthenticated(true)
-    localStorage.setItem(AUTH_STORAGE_KEY, 'true')
-    return { ok: true }
   }
 
   const handleLogout = () => {
@@ -838,18 +855,24 @@ function App() {
     clearAdminApiToken()
   }
 
-  const handleWaiterLogin = (username, password) => {
-    if (username === WAITER_USER && password === WAITER_PASSWORD) {
+  const handleWaiterLogin = async (username, password) => {
+    try {
+      await loginWaiter(API_BASE_URL, String(username || '').trim(), String(password || ''))
       setIsWaiterAuthenticated(true)
       localStorage.setItem(WAITER_AUTH_STORAGE_KEY, 'true')
-      return true
+      return { ok: true }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error.message || 'Usuário ou senha inválidos.',
+      }
     }
-    return false
   }
 
   const handleWaiterLogout = () => {
     setIsWaiterAuthenticated(false)
     localStorage.removeItem(WAITER_AUTH_STORAGE_KEY)
+    clearWaiterApiToken()
     clearWaiterSession()
   }
 

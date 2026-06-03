@@ -1,7 +1,13 @@
 import { API_BASE_URL } from './apiBaseUrl.js'
 
 export const ADMIN_TOKEN_STORAGE_KEY = 'pizza-ralfs-admin-api-token'
+export const WAITER_TOKEN_STORAGE_KEY = 'pizza-ralfs-waiter-api-token'
 export const CATALOG_CACHE_VERSION = '2'
+
+function isJsonResponse(response) {
+  const contentType = response.headers.get('content-type') || ''
+  return contentType.includes('application/json')
+}
 
 export function getAdminApiToken() {
   return sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || ''
@@ -19,91 +25,56 @@ export function clearAdminApiToken() {
   sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY)
 }
 
-function isJsonResponse(response) {
-  const contentType = response.headers.get('content-type') || ''
-  return contentType.includes('application/json')
+export function getWaiterApiToken() {
+  return sessionStorage.getItem(WAITER_TOKEN_STORAGE_KEY) || ''
 }
 
-/** API de login ainda nao publicada ou senha nao configurada no servidor. */
-export function isAuthApiUnavailable(status, response) {
-  if (status === 404 || status === 503) return true
-  if (status === 405) return true
-  if (response && !isJsonResponse(response)) return true
-  return false
+export function setWaiterApiToken(token) {
+  if (token) {
+    sessionStorage.setItem(WAITER_TOKEN_STORAGE_KEY, token)
+  } else {
+    sessionStorage.removeItem(WAITER_TOKEN_STORAGE_KEY)
+  }
 }
 
-export async function loginAdmin(apiBase, username, password) {
-  const response = await fetch(`${apiBase}/auth/admin`, {
+export function clearWaiterApiToken() {
+  sessionStorage.removeItem(WAITER_TOKEN_STORAGE_KEY)
+}
+
+async function staffLogin(apiBase, path, username, password, setToken) {
+  const response = await fetch(`${apiBase}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
   const body = isJsonResponse(response) ? await response.json().catch(() => ({})) : {}
   if (!response.ok) {
-    const err = new Error(body.message || 'Falha no login')
-    err.status = response.status
-    err.apiUnavailable = isAuthApiUnavailable(response.status, response)
-    throw err
+    throw new Error(body.message || 'Falha no login')
   }
   if (!body.token) {
     throw new Error('Resposta de login invalida')
   }
-  setAdminApiToken(body.token)
+  setToken(body.token)
   return body.token
 }
 
-/**
- * Login na API; se indisponivel, aceita credenciais locais (build Vite).
- * Retorna { ok, fallback?, error? }.
- */
-export async function loginAdminWithFallback(
-  apiBase,
-  username,
-  password,
-  { localUser, localPassword },
-) {
-  const user = String(username || '').trim()
-  const pass = String(password || '')
-  const localOk =
-    user === String(localUser || '').trim() && pass === String(localPassword || '')
-
-  if (!localOk) {
-    try {
-      await loginAdmin(apiBase, user, pass)
-      return { ok: true, fallback: false }
-    } catch (error) {
-      return {
-        ok: false,
-        error: error.message || 'Usuario ou senha invalidos',
-      }
-    }
-  }
-
-  try {
-    await loginAdmin(apiBase, user, pass)
-    return { ok: true, fallback: false }
-  } catch (error) {
-    if (error.apiUnavailable || !error.status) {
-      clearAdminApiToken()
-      return { ok: true, fallback: true }
-    }
-    if (error.status === 401) {
-      return { ok: false, error: 'Senha rejeitada pela API. Confira ADMIN_PASSWORD em backend/.env' }
-    }
-    clearAdminApiToken()
-    return { ok: true, fallback: true }
-  }
+export function loginAdmin(apiBase, username, password) {
+  return staffLogin(apiBase, '/auth/admin', username, password, setAdminApiToken)
 }
 
-export async function verifyAdminSession(apiBase) {
-  const token = getAdminApiToken()
+export function loginWaiter(apiBase, username, password) {
+  return staffLogin(apiBase, '/auth/waiter', username, password, setWaiterApiToken)
+}
+
+async function verifyStaffSession(apiBase, verifyPath, getToken, clearToken) {
+  const token = getToken()
   if (!token) return false
 
-  const response = await fetch(`${apiBase}/auth/verify`, {
+  const response = await fetch(`${apiBase}${verifyPath}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (response.status === 401) {
-    clearAdminApiToken()
+    clearToken()
     return false
   }
   if (!isJsonResponse(response)) {
@@ -111,6 +82,19 @@ export async function verifyAdminSession(apiBase) {
   }
   const body = await response.json().catch(() => ({}))
   return response.ok && body.ok === true
+}
+
+export function verifyAdminSession(apiBase) {
+  return verifyStaffSession(apiBase, '/auth/verify', getAdminApiToken, clearAdminApiToken)
+}
+
+export function verifyWaiterSession(apiBase) {
+  return verifyStaffSession(
+    apiBase,
+    '/auth/waiter/verify',
+    getWaiterApiToken,
+    clearWaiterApiToken,
+  )
 }
 
 /** fetch com token admin (Pedidos, Admin, Relatórios). */
@@ -136,5 +120,4 @@ export async function adminFetch(apiBase, path, options = {}) {
   return response
 }
 
-// re-export for tests
 export { API_BASE_URL }
