@@ -48,6 +48,7 @@ import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
 import { CatalogCardImage } from './CatalogCardImage.jsx'
 import { CashClosePanel } from './CashClosePanel.jsx'
+import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
 import {
   adminMenuPreviewSrc,
   menuItemImageSrc,
@@ -94,6 +95,7 @@ import {
   loadWaiterSession,
   saveWaiterSession,
   filterMenuByCatalog,
+  filterMenuItemsBySearch,
   filterMenuItemsForAdmin,
   getCategoryLabel,
   persistTableNumber,
@@ -2129,6 +2131,7 @@ function HomePage({
   const [orderToast, setOrderToast] = useState('')
   const [showOrderSuccessOverlay, setShowOrderSuccessOverlay] = useState(false)
   const [orderOpen, setOrderOpen] = useState(false)
+  const [menuSearchQuery, setMenuSearchQuery] = useState('')
   const lastOrderBannerRef = useRef(null)
   const searchParams = useMemo(
     () => new URLSearchParams(location.search),
@@ -2167,6 +2170,15 @@ function HomePage({
     () => filterMenuByCatalog(menuItems, categories, activeCategory, activeSubcategory),
     [menuItems, categories, activeCategory, activeSubcategory],
   )
+  const displayMenu = useMemo(
+    () => filterMenuItemsBySearch(filteredMenu, menuSearchQuery, categories),
+    [filteredMenu, menuSearchQuery, categories],
+  )
+  const menuSearchActive = menuSearchQuery.trim().length > 0
+
+  useEffect(() => {
+    setMenuSearchQuery('')
+  }, [activeCategory, activeSubcategory])
   const pizzaMenuItems = useMemo(
     () => menuItems.filter((item) => isCombinablePizzaItem(item, categories)),
     [menuItems, categories],
@@ -2749,8 +2761,17 @@ function HomePage({
             ))}
           </div>
         )}
+        <div className="menu-catalog-search">
+          <AdminSearchBar
+            id="menu-catalog-search"
+            value={menuSearchQuery}
+            onChange={setMenuSearchQuery}
+            placeholder={`Buscar em ${sectionTitle}...`}
+            resultCount={menuSearchActive ? displayMenu.length : null}
+          />
+        </div>
         <div className="menu-items-grid">
-          {filteredMenu.map((menuItem, index) => (
+          {displayMenu.map((menuItem, index) => (
             <MenuItemCard
               key={menuItem.id}
               menuItem={menuItem}
@@ -2763,8 +2784,13 @@ function HomePage({
               imagePriority={index < 4}
             />
           ))}
-          {filteredMenu.length === 0 && (
+          {filteredMenu.length === 0 && !menuSearchActive && (
             <p className="empty-category">Nenhum item cadastrado nesta categoria.</p>
+          )}
+          {filteredMenu.length > 0 && menuSearchActive && displayMenu.length === 0 && (
+            <p className="menu-search-empty">
+              Nenhum item encontrado para &ldquo;{menuSearchQuery.trim()}&rdquo; nesta seção.
+            </p>
           )}
         </div>
       </div>
@@ -2778,25 +2804,8 @@ function HomePage({
 
 const REPORT_ORDERS_PAGE_SIZE = 15
 
-function summarizeWaiterSales(orders) {
-  const totals = new Map()
-  for (const order of orders) {
-    if (isDeliveryOrder(order.tableNumber, order.orderType)) continue
-    const name = String(order.waiterName || '').trim() || 'Sem garçom'
-    const prev = totals.get(name) || { orderCount: 0, salesTotal: 0 }
-    totals.set(name, {
-      orderCount: prev.orderCount + 1,
-      salesTotal: prev.salesTotal + (Number(order.totalAmount) || 0),
-    })
-  }
-  return [...totals.entries()]
-    .map(([name, stats]) => ({ name, ...stats }))
-    .sort((a, b) => b.salesTotal - a.salesTotal || b.orderCount - a.orderCount)
-}
-
-function WaiterSalesSummary({ orders }) {
-  const rows = useMemo(() => summarizeWaiterSales(orders), [orders])
-  if (!rows.length) return null
+function WaiterSalesSummary({ rows }) {
+  if (!rows?.length) return null
 
   return (
     <section className="report-table-block report-table-block--waiters">
@@ -2863,6 +2872,7 @@ function OrdersReportTable({ title, orders, emptyMessage, variant = 'default' })
               <th>Mesa</th>
               <th>Garçom</th>
               <th>Cliente</th>
+              <th>Pagamento</th>
               <th>Status</th>
               <th className="report-table-num">Valor</th>
             </tr>
@@ -2884,11 +2894,27 @@ function OrdersReportTable({ title, orders, emptyMessage, variant = 'default' })
                 <td>{order.waiterName?.trim() || '—'}</td>
                 <td>{order.customerName?.trim() || '—'}</td>
                 <td>
+                  {isDeliveryOrder(order.tableNumber, order.orderType) && order.paymentMethod
+                    ? formatPaymentSummary(order.paymentMethod, order.paymentChangeFor)
+                    : '—'}
+                </td>
+                <td>
                   <span className={`orders-status-badge ${orderStatusBadgeClass(order.status)}`}>
                     {orderStatusLabel(order.status)}
                   </span>
                 </td>
-                <td className="report-table-num">{formatOrderMoney(order.totalAmount)}</td>
+                <td className="report-table-num">
+                  {formatOrderMoney(order.totalAmount)}
+                  {isDeliveryOrder(order.tableNumber, order.orderType) && (
+                    <span className="report-order-fee-note">
+                      <br />
+                      <small>
+                        sub. {formatOrderMoney(order.itemsSubtotal)} + taxa{' '}
+                        {formatOrderMoney(order.deliveryFee)}
+                      </small>
+                    </span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -3006,26 +3032,9 @@ function ReportsPage() {
         <p className="report-table-empty">Carregando relatório...</p>
       )}
 
-      {summary && (
-        <div className="reports-summary">
-          <article className="reports-summary-card reports-summary-card--sold">
-            <span className="reports-summary-label">Pedidos vendidos</span>
-            <strong className="reports-summary-value">{summary.soldCount}</strong>
-            <span className="reports-summary-money">{formatOrderMoney(summary.soldTotal)}</span>
-          </article>
-          <article className="reports-summary-card reports-summary-card--cancelled">
-            <span className="reports-summary-label">Pedidos cancelados</span>
-            <strong className="reports-summary-value">{summary.cancelledCount}</strong>
-            <span className="reports-summary-money">
-              {formatOrderMoney(summary.cancelledTotal)}
-            </span>
-          </article>
-        </div>
-      )}
+      {summary && <OrdersSummaryCards summary={summary} className="cash-close-summary reports-summary-grid" />}
 
-      {report?.soldOrders?.length ? (
-        <WaiterSalesSummary orders={report.soldOrders} />
-      ) : null}
+      {summary?.byWaiter?.length ? <WaiterSalesSummary rows={summary.byWaiter} /> : null}
 
       {report && (
         <>

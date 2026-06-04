@@ -701,6 +701,17 @@ body.home-splash-active .brand-header {
   color: var(--brand-text-muted);
 }
 
+.menu-catalog-search {
+  width: 100%;
+  max-width: 100%;
+  margin: 4px 0 14px;
+  box-sizing: border-box;
+}
+
+.menu-catalog-search .catalog-search {
+  grid-column: auto;
+}
+
 .menu-search-empty {
   grid-column: 1 / -1;
   margin: 0;
@@ -4160,6 +4171,7 @@ body.home-splash-active .brand-header {
   .last-order-banner,
   .category-section-head,
   .category-tabs,
+  .menu-catalog-search,
   .menu-items-grid,
   .empty-category {
     width: 100%;
@@ -4955,6 +4967,16 @@ body.home-splash-active .brand-header {
 .cash-close-notes {
   display: block;
   margin-bottom: 12px;
+}
+
+.reports-summary-grid {
+  margin-bottom: 22px;
+}
+
+.report-order-fee-note small {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--brand-text-muted);
 }
 
 .cash-close-summary {

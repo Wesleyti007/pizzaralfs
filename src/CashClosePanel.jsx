@@ -4,57 +4,10 @@ import {
   closeCashRegister,
   fetchCashClosePreview,
   fetchCashClosings,
-  paymentMethodLabel,
   printCashClosingReceipt,
 } from './cashClosing.js'
+import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
 import { formatOrderDateTime, formatOrderMoney } from './orders.js'
-
-function CashCloseSummaryCards({ summary }) {
-  if (!summary) return null
-
-  const paymentEntries = Object.entries(summary.paymentMethods || {})
-
-  return (
-    <div className="cash-close-summary">
-      <article className="reports-summary-card reports-summary-card--sold cash-close-summary-card">
-        <span className="reports-summary-label">Total vendido</span>
-        <strong className="reports-summary-value">{summary.soldCount}</strong>
-        <span className="reports-summary-money">{formatOrderMoney(summary.soldTotal)}</span>
-      </article>
-      <article className="cash-close-summary-card cash-close-summary-card--split">
-        <span className="reports-summary-label">Mesas</span>
-        <strong>{summary.tableCount} pedidos</strong>
-        <span>{formatOrderMoney(summary.tableTotal)}</span>
-      </article>
-      <article className="cash-close-summary-card cash-close-summary-card--split">
-        <span className="reports-summary-label">Delivery</span>
-        <strong>{summary.deliveryCount} pedidos</strong>
-        <span>{formatOrderMoney(summary.deliveryTotal)}</span>
-      </article>
-      <article className="cash-close-summary-card cash-close-summary-card--split">
-        <span className="reports-summary-label">Taxas entrega</span>
-        <strong>{formatOrderMoney(summary.deliveryFeesTotal)}</strong>
-      </article>
-      <article className="reports-summary-card reports-summary-card--cancelled cash-close-summary-card">
-        <span className="reports-summary-label">Cancelados</span>
-        <strong className="reports-summary-value">{summary.cancelledCount}</strong>
-        <span className="reports-summary-money">{formatOrderMoney(summary.cancelledTotal)}</span>
-      </article>
-      {paymentEntries.length > 0 && (
-        <article className="cash-close-summary-card cash-close-summary-card--wide">
-          <span className="reports-summary-label">Pagamentos (delivery)</span>
-          <ul className="cash-close-payment-list">
-            {paymentEntries.map(([method, stats]) => (
-              <li key={method}>
-                {paymentMethodLabel(method)}: {stats.count} · {formatOrderMoney(stats.total)}
-              </li>
-            ))}
-          </ul>
-        </article>
-      )}
-    </div>
-  )
-}
 
 export function CashClosePanel() {
   const [preview, setPreview] = useState(null)
@@ -158,8 +111,8 @@ export function CashClosePanel() {
         <div>
           <h3>Fechamento de caixa</h3>
           <p>
-            Vendas desde o último fechamento (ou desde 00:00 de hoje). Ao fechar, o próximo período
-            começa na hora do fechamento.
+            Vendas desde o último fechamento de caixa. O total só zera quando você clicar em
+            &quot;Fechar caixa agora&quot; — não reseta à meia-noite.
           </p>
         </div>
         <button
@@ -217,7 +170,7 @@ export function CashClosePanel() {
             <p className="report-table-empty">Carregando fechamento...</p>
           )}
 
-          {preview?.summary && <CashCloseSummaryCards summary={preview.summary} />}
+          {preview?.summary && <OrdersSummaryCards summary={preview.summary} />}
 
           {lastClosed?.closing && (
             <div className="cash-close-done">

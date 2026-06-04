@@ -68,14 +68,6 @@ export function buildOrdersSummary(orders) {
   }
 }
 
-export async function getStartOfTodayBrazil(query) {
-  const result = await query(
-    `SELECT (date_trunc('day', NOW() AT TIME ZONE 'America/Sao_Paulo')
-      AT TIME ZONE 'America/Sao_Paulo')::timestamptz AS start`,
-  )
-  return result.rows[0]?.start ?? new Date()
-}
-
 export async function getLastCashClosing(query) {
   const result = await query(
     `SELECT id, period_from AS "periodFrom", period_to AS "periodTo",
@@ -87,10 +79,16 @@ export async function getLastCashClosing(query) {
   return result.rows[0] ?? null
 }
 
+/** Início do período aberto: só muda quando você clica em "Fechar caixa". */
 export async function resolveCashClosePeriodFrom(query) {
   const last = await getLastCashClosing(query)
   if (last?.periodTo) return new Date(last.periodTo)
-  return getStartOfTodayBrazil(query)
+
+  const earliest = await query(`SELECT MIN(created_at) AS start FROM orders`)
+  const minOrder = earliest.rows[0]?.start
+  if (minOrder) return new Date(minOrder)
+
+  return new Date(0)
 }
 
 export async function fetchOrdersInRange(query, periodFrom, periodTo) {

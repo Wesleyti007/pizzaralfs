@@ -20,6 +20,7 @@ import { validateOrderItemsMinQty } from './minOrderQty.js'
 import { ensureOrderSchema } from './ensureSchema.js'
 import {
   buildCashClosePreview,
+  buildOrdersSummary,
   createCashClosing,
   listCashClosings,
 } from './cashClosing.js'
@@ -783,19 +784,12 @@ app.get('/orders/report', requireAdmin, async (req, res) => {
     const orders = result.rows
     const soldOrders = orders.filter((order) => order.status !== 'cancelled')
     const cancelledOrders = orders.filter((order) => order.status === 'cancelled')
-
-    const sumTotal = (list) =>
-      list.reduce((acc, order) => acc + (Number(order.totalAmount) || 0), 0)
+    const summary = buildOrdersSummary(orders)
 
     return res.json({
       from,
       to,
-      summary: {
-        soldCount: soldOrders.length,
-        soldTotal: sumTotal(soldOrders),
-        cancelledCount: cancelledOrders.length,
-        cancelledTotal: sumTotal(cancelledOrders),
-      },
+      summary,
       orders,
       soldOrders,
       cancelledOrders,
