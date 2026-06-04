@@ -82,13 +82,37 @@ export function dateInputFromTimestamp(value) {
 }
 
 export function buildReportsPathForPeriod(periodFrom, periodTo) {
-  const from = dateInputFromTimestamp(periodFrom)
-  const to = dateInputFromTimestamp(periodTo)
-  return `/relatorios?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  const fromIso =
+    typeof periodFrom === 'string' ? periodFrom : new Date(periodFrom).toISOString()
+  const toIso = typeof periodTo === 'string' ? periodTo : new Date(periodTo).toISOString()
+  return `/relatorios?periodFrom=${encodeURIComponent(fromIso)}&periodTo=${encodeURIComponent(toIso)}`
 }
 
 export async function fetchOrdersReport(apiBaseUrl, from, to) {
   const params = new URLSearchParams({ from, to })
+  const response = await adminFetch(apiBaseUrl, `/orders/report?${params}`)
+
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      'Relatório indisponível na API. Reinicie o backend: cd backend && npm run dev',
+    )
+  }
+
+  const body = await response.json()
+  if (!response.ok) {
+    throw new Error(body.message || body.detail || 'Falha ao carregar relatório')
+  }
+
+  return body
+}
+
+/** Relatório alinhado ao fechamento de caixa (mesmo intervalo de horário). */
+export async function fetchOrdersReportForPeriod(apiBaseUrl, periodFrom, periodTo) {
+  const fromIso =
+    typeof periodFrom === 'string' ? periodFrom : new Date(periodFrom).toISOString()
+  const toIso = typeof periodTo === 'string' ? periodTo : new Date(periodTo).toISOString()
+  const params = new URLSearchParams({ periodFrom: fromIso, periodTo: toIso })
   const response = await adminFetch(apiBaseUrl, `/orders/report?${params}`)
 
   const contentType = response.headers.get('content-type') || ''

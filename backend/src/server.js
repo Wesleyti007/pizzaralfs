@@ -20,6 +20,7 @@ import { validateOrderItemsMinQty } from './minOrderQty.js'
 import { ensureOrderSchema } from './ensureSchema.js'
 import {
   buildCashClosePreview,
+  buildOrdersReportForPeriod,
   buildOrdersSummary,
   createCashClosing,
   listCashClosings,
@@ -771,8 +772,15 @@ app.get('/orders/report', requireAdmin, async (req, res) => {
   const today = todayIsoDate()
   const from = parseDateQuery(req.query.from, today)
   const to = parseDateQuery(req.query.to, from)
+  const periodFrom = parseDateTimeQuery(req.query.periodFrom)
+  const periodTo = parseDateTimeQuery(req.query.periodTo)
 
   try {
+    if (periodFrom && periodTo) {
+      const report = await buildOrdersReportForPeriod(query, periodFrom, periodTo)
+      return res.json(report)
+    }
+
     const result = await query(
       `SELECT ${ORDER_RETURNING}
        FROM orders

@@ -33,6 +33,7 @@ import {
   dateInputDaysAgo,
   dateInputFromTimestamp,
   fetchOrdersReport,
+  fetchOrdersReportForPeriod,
   patchOrderDetails,
   patchOrderDeliveryFee,
   patchOrderStatus,
@@ -2986,7 +2987,29 @@ function ReportsPage() {
     [fromDate, toDate],
   )
 
+  const loadReportByPeriod = useCallback(async (periodFrom, periodTo) => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await fetchOrdersReportForPeriod(API_BASE_URL, periodFrom, periodTo)
+      setFromDate(dateInputFromTimestamp(data.periodFrom ?? periodFrom))
+      setToDate(dateInputFromTimestamp(data.periodTo ?? periodTo))
+      setReport(data)
+    } catch (loadError) {
+      setReport(null)
+      setError(formatApiError(loadError, 'Não foi possível carregar o relatório.'))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
+    const periodFrom = searchParams.get('periodFrom')
+    const periodTo = searchParams.get('periodTo')
+    if (periodFrom && periodTo) {
+      void loadReportByPeriod(periodFrom, periodTo)
+      return
+    }
     const from = searchParams.get('from')
     const to = searchParams.get('to')
     if (from && to) {
@@ -2998,56 +3021,60 @@ function ReportsPage() {
     void loadReport()
   }, [searchParams])
 
-  const applyPeriodAndLoad = async (from, to, label) => {
-    setQuickLoading(label)
-    setFromDate(from)
-    setToDate(to)
-    setError('')
+  const loadOpenCashReport = async () => {
+    setQuickLoading('open')
     setLoading(true)
+    setError('')
     try {
-      const data = await fetchOrdersReport(API_BASE_URL, from, to)
-      setReport(data)
+      const preview = await fetchCashClosePreview(API_BASE_URL)
+      setFromDate(dateInputFromTimestamp(preview.periodFrom))
+      setToDate(dateInputFromTimestamp(preview.periodTo))
+      setReport({
+        periodFrom: preview.periodFrom,
+        periodTo: preview.periodTo,
+        from: dateInputFromTimestamp(preview.periodFrom),
+        to: dateInputFromTimestamp(preview.periodTo),
+        summary: preview.summary,
+        orders: preview.orders ?? [],
+        soldOrders: preview.soldOrders ?? [],
+        cancelledOrders: preview.cancelledOrders ?? [],
+      })
     } catch (loadError) {
       setReport(null)
-      setError(formatApiError(loadError, 'Não foi possível carregar o relatório.'))
+      setError(formatApiError(loadError, 'Não foi possível carregar o caixa aberto.'))
     } finally {
       setLoading(false)
       setQuickLoading('')
     }
   }
 
-  const loadOpenCashReport = async () => {
-    setQuickLoading('open')
-    try {
-      const preview = await fetchCashClosePreview(API_BASE_URL)
-      await applyPeriodAndLoad(
-        dateInputFromTimestamp(preview.periodFrom),
-        dateInputFromTimestamp(preview.periodTo),
-        '',
-      )
-    } catch (loadError) {
-      setError(formatApiError(loadError, 'Não foi possível carregar o caixa aberto.'))
-      setQuickLoading('')
-    }
-  }
-
   const loadLastClosingReport = async () => {
     setQuickLoading('last')
+    setLoading(true)
+    setError('')
     try {
       const closings = await fetchCashClosings(API_BASE_URL, 1)
       const last = Array.isArray(closings) ? closings[0] : null
       if (!last) {
         setError('Nenhum fechamento de caixa registrado ainda.')
+        setReport(null)
         setQuickLoading('')
+        setLoading(false)
         return
       }
-      await applyPeriodAndLoad(
-        dateInputFromTimestamp(last.periodFrom),
-        dateInputFromTimestamp(last.periodTo),
-        '',
+      const data = await fetchOrdersReportForPeriod(
+        API_BASE_URL,
+        last.periodFrom,
+        last.periodTo,
       )
+      setFromDate(dateInputFromTimestamp(data.periodFrom ?? last.periodFrom))
+      setToDate(dateInputFromTimestamp(data.periodTo ?? last.periodTo))
+      setReport(data)
     } catch (loadError) {
+      setReport(null)
       setError(formatApiError(loadError, 'Não foi possível carregar o último fechamento.'))
+    } finally {
+      setLoading(false)
       setQuickLoading('')
     }
   }
@@ -3062,8 +3089,8 @@ function ReportsPage() {
       await printCashCloseDetailA4({
         closing: null,
         summary: report.summary,
-        periodFrom: `${fromDate}T00:00:00`,
-        periodTo: `${toDate}T23:59:59`,
+        periodFrom: report.periodFrom ?? `${fromDate}T00:00:00`,
+        periodTo: report.periodTo ?? `${toDate}T23:59:59`,
         orders: report.orders ?? [],
       })
     } catch (printError) {

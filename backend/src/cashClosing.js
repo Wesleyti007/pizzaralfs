@@ -103,6 +103,33 @@ export async function fetchOrdersInRange(query, periodFrom, periodTo) {
   return result.rows
 }
 
+/** Relatório com o mesmo recorte do fechamento de caixa (horário exato, não dia inteiro). */
+export async function buildOrdersReportForPeriod(query, periodFrom, periodTo) {
+  const fromDate = periodFrom instanceof Date ? periodFrom : new Date(periodFrom)
+  const toDate = periodTo instanceof Date ? periodTo : new Date(periodTo)
+  const result = await query(
+    `SELECT ${ORDER_SELECT}
+     FROM orders
+     WHERE created_at > $1::timestamptz
+       AND created_at <= $2::timestamptz
+     ORDER BY created_at DESC`,
+    [fromDate, toDate],
+  )
+  const orders = result.rows
+  const soldOrders = orders.filter((order) => order.status !== 'cancelled')
+  const cancelledOrders = orders.filter((order) => order.status === 'cancelled')
+  return {
+    periodFrom: fromDate.toISOString(),
+    periodTo: toDate.toISOString(),
+    from: fromDate.toISOString().slice(0, 10),
+    to: toDate.toISOString().slice(0, 10),
+    summary: buildOrdersSummary(orders),
+    orders,
+    soldOrders,
+    cancelledOrders,
+  }
+}
+
 export async function buildCashClosePreview(query, periodTo = new Date()) {
   const periodFrom = await resolveCashClosePeriodFrom(query)
   const toDate = periodTo instanceof Date ? periodTo : new Date(periodTo)
