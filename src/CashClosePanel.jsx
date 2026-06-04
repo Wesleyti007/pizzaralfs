@@ -5,6 +5,7 @@ import {
   fetchCashClosePreview,
   fetchCashClosings,
   printCashClosingReceipt,
+  sanitizeCashCloseNotes,
 } from './cashClosing.js'
 import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
 import { formatOrderDateTime, formatOrderMoney } from './orders.js'
@@ -213,7 +214,9 @@ export function CashClosePanel() {
                           {formatOrderDateTime(entry.periodTo)} ·{' '}
                           {formatOrderMoney(entry.summary?.soldTotal)} ({entry.summary?.soldCount ?? 0}{' '}
                           pedidos)
-                          {entry.notes ? ` · ${entry.notes}` : ''}
+                          {sanitizeCashCloseNotes(entry.notes)
+                            ? ` · ${sanitizeCashCloseNotes(entry.notes)}`
+                            : ''}
                         </span>
                         <button
                           type="button"

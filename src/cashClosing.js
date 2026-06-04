@@ -1,6 +1,11 @@
 import { adminFetch } from './apiAuth.js'
 import { formatOrderDateTime, formatOrderMoney } from './orders.js'
-import { waitForPrintDocument } from './orderPrint.js'
+import {
+  THERMAL_PAPER_MM,
+  THERMAL_PRINT_WIDTH_MM,
+  thermalPrintStyles,
+  waitForPrintDocument,
+} from './orderPrint.js'
 
 export const PAYMENT_METHOD_LABELS = {
   pix: 'PIX',
@@ -13,6 +18,14 @@ export const PAYMENT_METHOD_LABELS = {
 export function paymentMethodLabel(method) {
   const key = String(method || '').trim()
   return PAYMENT_METHOD_LABELS[key] || key || '—'
+}
+
+/** Não exibir observações internas de migração/consolidação. */
+export function sanitizeCashCloseNotes(notes) {
+  const raw = String(notes ?? '').trim()
+  if (!raw) return ''
+  if (/consolidado|corre[cç][aã]o fechamento|meia-noite/i.test(raw)) return ''
+  return raw
 }
 
 async function parseJsonResponse(response, fallbackMessage) {
@@ -74,64 +87,71 @@ export function buildCashClosePrintHtml({
   soldOrders = [],
   notes = '',
 }) {
-  const paymentRows = Object.entries(summary?.paymentMethods || {})
+  const safeNotes = sanitizeCashCloseNotes(notes)
+  const notesLine = safeNotes
+    ? `<p class="print-line">Obs: ${escapeHtml(safeNotes)}</p>`
+    : ''
+
+  const paymentLines = Object.entries(summary?.paymentMethods || {})
     .map(
       ([method, stats]) =>
-        `<tr><td>${escapeHtml(paymentMethodLabel(method))}</td><td>${stats.count}</td><td>${escapeHtml(formatOrderMoney(stats.total))}</td></tr>`,
+        `<p class="print-line">${escapeHtml(paymentMethodLabel(method))}: ${stats.count} · ${escapeHtml(formatOrderMoney(stats.total))}</p>`,
     )
     .join('')
 
-  const waiterRows = (summary?.byWaiter || [])
+  const waiterLines = (summary?.byWaiter || [])
     .map(
       (row) =>
-        `<tr><td>${escapeHtml(row.name)}</td><td>${row.orderCount}</td><td>${escapeHtml(formatOrderMoney(row.salesTotal))}</td></tr>`,
+        `<p class="print-line">${escapeHtml(row.name)}: ${row.orderCount} ped. · ${escapeHtml(formatOrderMoney(row.salesTotal))}</p>`,
     )
     .join('')
 
-  const orderRows = soldOrders
-    .slice(0, 80)
+  const orderLines = soldOrders
+    .slice(0, 60)
     .map(
       (order) =>
-        `<tr><td>#${order.id}</td><td>${escapeHtml(formatOrderDateTime(order.createdAt))}</td><td>${escapeHtml(formatOrderMoney(order.totalAmount))}</td></tr>`,
+        `<p class="print-line">#${order.id} · ${escapeHtml(formatOrderDateTime(order.createdAt))} · ${escapeHtml(formatOrderMoney(order.totalAmount))}</p>`,
     )
     .join('')
 
-  const notesLine = String(notes || '').trim()
-    ? `<p><strong>Obs:</strong> ${escapeHtml(notes)}</p>`
-    : ''
+  const moreOrders =
+    soldOrders.length > 60
+      ? `<p class="print-line">+ ${soldOrders.length - 60} pedido(s) no sistema</p>`
+      : ''
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <title>Fechamento de caixa #${closing?.id ?? ''}</title>
-  <style>
-    body { font-family: Arial, sans-serif; font-size: 12px; padding: 16px; color: #111; }
-    h1 { font-size: 16px; margin: 0 0 4px; }
-    .meta { margin: 0 0 12px; color: #444; line-height: 1.45; }
-    table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; }
-    th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
-    th { background: #f3f3f3; }
-    .total { font-size: 14px; font-weight: bold; margin: 8px 0; }
-    .section { margin-top: 14px; }
-    @media print { body { padding: 0; } }
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=${THERMAL_PRINT_WIDTH_MM}mm" />
+  <title>Fechamento #${closing?.id ?? ''}</title>
+  <style>${thermalPrintStyles()}</style>
 </head>
 <body>
-  <h1>Pizza Ralf&apos;s — Fechamento de caixa</h1>
-  <p class="meta">
-    Fechamento #${closing?.id ?? '—'}<br />
-    De ${escapeHtml(formatOrderDateTime(periodFrom))} até ${escapeHtml(formatOrderDateTime(periodTo))}
-  </p>
-  ${notesLine}
-  <p class="total">Total vendido: ${escapeHtml(formatOrderMoney(summary?.soldTotal))} (${summary?.soldCount ?? 0} pedidos)</p>
-  <p>Mesas: ${summary?.tableCount ?? 0} pedidos — ${escapeHtml(formatOrderMoney(summary?.tableTotal))}<br />
-     Delivery: ${summary?.deliveryCount ?? 0} pedidos — ${escapeHtml(formatOrderMoney(summary?.deliveryTotal))}<br />
-     Taxas de entrega: ${escapeHtml(formatOrderMoney(summary?.deliveryFeesTotal))}<br />
-     Cancelados: ${summary?.cancelledCount ?? 0} — ${escapeHtml(formatOrderMoney(summary?.cancelledTotal))}</p>
-  ${paymentRows ? `<div class="section"><strong>Pagamentos (delivery)</strong><table><thead><tr><th>Forma</th><th>Qtd</th><th>Total</th></tr></thead><tbody>${paymentRows}</tbody></table></div>` : ''}
-  ${waiterRows ? `<div class="section"><strong>Vendas por garçom</strong><table><thead><tr><th>Garçom</th><th>Pedidos</th><th>Total</th></tr></thead><tbody>${waiterRows}</tbody></table></div>` : ''}
-  ${orderRows ? `<div class="section"><strong>Pedidos do período</strong><table><thead><tr><th>Pedido</th><th>Data</th><th>Valor</th></tr></thead><tbody>${orderRows}</tbody></table></div>` : ''}
+  <div class="order-print-sheet">
+    <section class="order-print-via">
+      <div class="print-block print-block--header">
+        <p class="print-center print-brand">PIZZA RALF'S</p>
+        <p class="print-center print-via-tag">FECHAMENTO DE CAIXA</p>
+        <p class="print-line">Fechamento #${closing?.id ?? '—'}</p>
+        <p class="print-line">${escapeHtml(formatOrderDateTime(periodFrom))}</p>
+        <p class="print-line">ate ${escapeHtml(formatOrderDateTime(periodTo))}</p>
+      </div>
+      <p class="print-divider">--------------------------------</p>
+      <div class="print-block print-block--totals">
+        <p class="print-total">TOTAL: ${escapeHtml(formatOrderMoney(summary?.soldTotal))}</p>
+        <p class="print-line">${summary?.soldCount ?? 0} pedido(s) vendidos</p>
+        <p class="print-line">Mesas: ${summary?.tableCount ?? 0} · ${escapeHtml(formatOrderMoney(summary?.tableTotal))}</p>
+        <p class="print-line">Delivery: ${summary?.deliveryCount ?? 0} · ${escapeHtml(formatOrderMoney(summary?.deliveryTotal))}</p>
+        <p class="print-line">Taxas entrega: ${escapeHtml(formatOrderMoney(summary?.deliveryFeesTotal))}</p>
+        <p class="print-line">Cancelados: ${summary?.cancelledCount ?? 0} · ${escapeHtml(formatOrderMoney(summary?.cancelledTotal))}</p>
+      </div>
+      ${paymentLines ? `<p class="print-divider">--------------------------------</p><div class="print-block"><p class="print-dest-tag">PAGAMENTOS DELIVERY</p>${paymentLines}</div>` : ''}
+      ${waiterLines ? `<p class="print-divider">--------------------------------</p><div class="print-block"><p class="print-dest-tag">GARCONS</p>${waiterLines}</div>` : ''}
+      ${orderLines ? `<p class="print-divider">--------------------------------</p><div class="print-block"><p class="print-dest-tag">PEDIDOS</p>${orderLines}${moreOrders}</div>` : ''}
+      ${notesLine ? `<p class="print-divider">--------------------------------</p><div class="print-block print-block--obs">${notesLine}</div>` : ''}
+    </section>
+  </div>
 </body>
 </html>`
 }
@@ -152,7 +172,7 @@ export function printCashClosingReceipt({
       'position:fixed',
       'left:0',
       'top:0',
-      'width:80mm',
+      `width:${THERMAL_PAPER_MM}mm`,
       'height:0',
       'border:0',
       'overflow:hidden',

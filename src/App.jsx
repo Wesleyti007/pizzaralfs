@@ -3100,8 +3100,6 @@ function OrderDeliveryFeeEditor({ order, busy = false, onSaved }) {
     <div className="orders-delivery-fee-editor">
       <p className="orders-delivery-fee-title">Taxa de entrega deste pedido</p>
       <p className="orders-delivery-fee-breakdown">
-        Subtotal itens: {formatOrderMoney(subtotal)}
-        {' · '}
         Total com taxa: <strong>{formatOrderMoney(previewTotal)}</strong>
       </p>
       <label className="orders-delivery-fee-field">

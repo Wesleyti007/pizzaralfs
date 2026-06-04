@@ -128,7 +128,7 @@ async function main() {
         periodFrom,
         periodTo,
         JSON.stringify(summary),
-        'Consolidado (correção fechamentos duplicados / meia-noite)',
+        '',
       ],
     )
     await query('COMMIT')

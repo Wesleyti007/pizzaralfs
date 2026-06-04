@@ -149,7 +149,7 @@ function buildPrintTearLine(label) {
   return `<p class="order-print-tear" role="separator">${escapeHtml(label)}</p>`
 }
 
-function thermalPrintStyles() {
+export function thermalPrintStyles() {
   const w = THERMAL_PRINT_WIDTH_MM
   const paper = THERMAL_PAPER_MM
 
