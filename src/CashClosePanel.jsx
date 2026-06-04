@@ -5,15 +5,12 @@ import {
   closeCashRegister,
   fetchCashClosePreview,
   fetchCashClosings,
-  printCashCloseDetailA4,
   printCashClosingReceipt,
   sanitizeCashCloseNotes,
 } from './cashClosing.js'
 import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
 import {
   buildReportsPathForPeriod,
-  dateInputFromTimestamp,
-  fetchOrdersReport,
   formatOrderDateTime,
   formatOrderMoney,
 } from './orders.js'
@@ -39,7 +36,6 @@ export function CashClosePanel({ onCashClosed }) {
         summary: payload.summary,
         periodFrom: payload.periodFrom,
         periodTo: payload.periodTo,
-        soldOrders: payload.soldOrders ?? [],
         notes: payload.notes ?? payload.closing?.notes ?? '',
       })
     } catch (printError) {
@@ -47,40 +43,6 @@ export function CashClosePanel({ onCashClosed }) {
         printError instanceof Error
           ? printError.message
           : 'Não foi possível imprimir o comprovante.',
-      )
-    } finally {
-      setPrintingId(null)
-    }
-  }
-
-  const resolveOrdersForDetail = async (payload) => {
-    if (Array.isArray(payload.orders) && payload.orders.length > 0) {
-      return payload.orders
-    }
-    const from = dateInputFromTimestamp(payload.periodFrom)
-    const to = dateInputFromTimestamp(payload.periodTo)
-    const report = await fetchOrdersReport(API_BASE_URL, from, to)
-    return report.orders ?? []
-  }
-
-  const printDetailA4 = async (payload, label) => {
-    setPrintingId(label)
-    setError('')
-    try {
-      const orders = await resolveOrdersForDetail(payload)
-      await printCashCloseDetailA4({
-        closing: payload.closing ?? { id: payload.id },
-        summary: payload.summary,
-        periodFrom: payload.periodFrom,
-        periodTo: payload.periodTo,
-        orders,
-        notes: payload.notes ?? payload.closing?.notes ?? '',
-      })
-    } catch (printError) {
-      setError(
-        printError instanceof Error
-          ? printError.message
-          : 'Não foi possível imprimir o detalhamento A4.',
       )
     } finally {
       setPrintingId(null)
@@ -183,18 +145,7 @@ export function CashClosePanel({ onCashClosed }) {
             >
               {loading ? 'Atualizando...' : 'Atualizar totais'}
             </button>
-            <button
-              type="button"
-              className="admin-btn admin-btn-outline"
-              onClick={() => preview && void printDetailA4(preview, 'a4-preview')}
-              disabled={loading || closing || !preview || printingId === 'a4-preview'}
-            >
-              {printingId === 'a4-preview' ? 'Abrindo A4...' : 'Detalhamento A4'}
-            </button>
-            <Link
-              className="admin-btn admin-btn-outline"
-              to={reportsPath}
-            >
+            <Link className="admin-btn admin-btn-outline" to={reportsPath}>
               Ver em Relatórios
             </Link>
             <button
@@ -245,15 +196,7 @@ export function CashClosePanel({ onCashClosed }) {
                   onClick={() => void printClosing(lastClosed, 'thermal-last')}
                   disabled={printingId === 'thermal-last'}
                 >
-                  {printingId === 'thermal-last' ? 'Imprimindo...' : 'Comprovante 80 mm'}
-                </button>
-                <button
-                  type="button"
-                  className="admin-btn admin-btn-outline"
-                  onClick={() => void printDetailA4(lastClosed, 'a4-last')}
-                  disabled={printingId === 'a4-last'}
-                >
-                  {printingId === 'a4-last' ? 'Abrindo A4...' : 'Detalhamento A4'}
+                  {printingId === 'thermal-last' ? 'Imprimindo...' : 'Comprovante'}
                 </button>
                 <Link
                   className="admin-btn admin-btn-outline"
@@ -298,15 +241,7 @@ export function CashClosePanel({ onCashClosed }) {
                             onClick={() => void printClosing(entry, `thermal-${entry.id}`)}
                             disabled={printingId === `thermal-${entry.id}`}
                           >
-                            {printingId === `thermal-${entry.id}` ? '...' : '80 mm'}
-                          </button>
-                          <button
-                            type="button"
-                            className="admin-btn admin-btn-ghost cash-close-history-print"
-                            onClick={() => void printDetailA4(entry, `a4-${entry.id}`)}
-                            disabled={printingId === `a4-${entry.id}`}
-                          >
-                            {printingId === `a4-${entry.id}` ? '...' : 'A4'}
+                            {printingId === `thermal-${entry.id}` ? '...' : 'Comprovante'}
                           </button>
                           <Link
                             className="admin-btn admin-btn-ghost cash-close-history-print"

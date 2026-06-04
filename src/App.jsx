@@ -50,7 +50,11 @@ import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
 import { CatalogCardImage } from './CatalogCardImage.jsx'
 import { CashClosePanel } from './CashClosePanel.jsx'
-import { fetchCashClosePreview, fetchCashClosings } from './cashClosing.js'
+import {
+  fetchCashClosePreview,
+  fetchCashClosings,
+  printCashCloseDetailA4,
+} from './cashClosing.js'
 import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
 import {
   adminMenuPreviewSrc,
@@ -2963,6 +2967,7 @@ function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [quickLoading, setQuickLoading] = useState('')
+  const [printingDetail, setPrintingDetail] = useState(false)
 
   const loadReport = useCallback(
     async (from = fromDate, to = toDate) => {
@@ -3049,6 +3054,25 @@ function ReportsPage() {
 
   const summary = report?.summary
 
+  const handlePrintDetalhamento = async () => {
+    if (!report?.summary) return
+    setPrintingDetail(true)
+    setError('')
+    try {
+      await printCashCloseDetailA4({
+        closing: null,
+        summary: report.summary,
+        periodFrom: `${fromDate}T00:00:00`,
+        periodTo: `${toDate}T23:59:59`,
+        orders: report.orders ?? [],
+      })
+    } catch (printError) {
+      setError(formatApiError(printError, 'Não foi possível imprimir o detalhamento.'))
+    } finally {
+      setPrintingDetail(false)
+    }
+  }
+
   return (
     <section className="reports-page">
       <header className="reports-page-header">
@@ -3107,6 +3131,14 @@ function ReportsPage() {
         </label>
         <button type="submit" className="admin-btn admin-btn-primary" disabled={loading}>
           {loading ? 'Buscando...' : 'Buscar'}
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn-outline"
+          disabled={loading || !report || printingDetail}
+          onClick={() => void handlePrintDetalhamento()}
+        >
+          {printingDetail ? 'Abrindo...' : 'Detalhamento'}
         </button>
         <button
           type="button"

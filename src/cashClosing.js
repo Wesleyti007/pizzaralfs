@@ -90,7 +90,6 @@ export function buildCashClosePrintHtml({
   summary,
   periodFrom,
   periodTo,
-  soldOrders = [],
   notes = '',
 }) {
   const safeNotes = sanitizeCashCloseNotes(notes)
@@ -112,25 +111,12 @@ export function buildCashClosePrintHtml({
     )
     .join('')
 
-  const orderLines = soldOrders
-    .slice(0, 60)
-    .map(
-      (order) =>
-        `<p class="print-line">#${order.id} · ${escapeHtml(formatOrderDateTime(order.createdAt))} · ${escapeHtml(formatOrderMoney(order.totalAmount))}</p>`,
-    )
-    .join('')
-
-  const moreOrders =
-    soldOrders.length > 60
-      ? `<p class="print-line">+ ${soldOrders.length - 60} pedido(s) no sistema</p>`
-      : ''
-
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=${THERMAL_PRINT_WIDTH_MM}mm" />
-  <title>Fechamento #${closing?.id ?? ''}</title>
+  <title>Comprovante #${closing?.id ?? ''}</title>
   <style>${thermalPrintStyles()}</style>
 </head>
 <body>
@@ -154,7 +140,6 @@ export function buildCashClosePrintHtml({
       </div>
       ${paymentLines ? `<p class="print-divider">--------------------------------</p><div class="print-block"><p class="print-dest-tag">PAGAMENTOS DELIVERY</p>${paymentLines}</div>` : ''}
       ${waiterLines ? `<p class="print-divider">--------------------------------</p><div class="print-block"><p class="print-dest-tag">GARCONS</p>${waiterLines}</div>` : ''}
-      <p class="print-line print-center">Detalhe pedido a pedido: A4</p>
       ${notesLine ? `<p class="print-divider">--------------------------------</p><div class="print-block print-block--obs">${notesLine}</div>` : ''}
     </section>
   </div>
@@ -167,7 +152,6 @@ export function printCashClosingReceipt({
   summary,
   periodFrom,
   periodTo,
-  soldOrders,
   notes,
 }) {
   return new Promise((resolve, reject) => {
@@ -212,7 +196,6 @@ export function printCashClosingReceipt({
         summary,
         periodFrom,
         periodTo,
-        soldOrders,
         notes,
       }),
     )
@@ -299,11 +282,12 @@ export function buildCashCloseDetailA4Html({
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <title>Detalhamento ${closingLabel}</title>
+  <title>DETALHAMENTO ${closingLabel}</title>
   <style>${CASH_CLOSE_A4_STYLES}</style>
 </head>
 <body>
-  <h1>Pizza Ralf's — Detalhamento de pedidos</h1>
+  <h1>DETALHAMENTO</h1>
+  <p class="print-center" style="text-align:center;margin:-8px 0 12px;font-size:11pt;">PIZZA RALF'S</p>
   <p class="meta">${escapeHtml(closingLabel)} · ${escapeHtml(formatOrderDateTime(periodFrom))} até ${escapeHtml(formatOrderDateTime(periodTo))}</p>
   <div class="totals">
     <p><strong>Total vendido:</strong> ${escapeHtml(formatOrderMoney(summary?.soldTotal))} (${summary?.soldCount ?? 0} pedido(s))</p>
