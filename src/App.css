@@ -4964,6 +4964,21 @@ body.home-splash-active .brand-header {
   margin-bottom: 12px;
 }
 
+.cash-close-done-actions,
+.cash-close-history-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.reports-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
 .cash-close-notes {
   display: block;
   margin-bottom: 12px;
@@ -5017,9 +5032,7 @@ body.home-splash-active .brand-header {
   border-radius: 10px;
   background: rgba(34, 120, 70, 0.08);
   border: 1px solid rgba(34, 120, 70, 0.25);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
   gap: 10px;
 }
 

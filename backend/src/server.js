@@ -23,6 +23,7 @@ import {
   buildOrdersSummary,
   createCashClosing,
   listCashClosings,
+  resolveCashClosePeriodFrom,
 } from './cashClosing.js'
 import { postAdminLogin, postWaiterLogin, requireAdmin, requireWaiter } from './adminAuth.js'
 import { priceOrderLinesFromDb } from './orderPricing.js'
@@ -802,6 +803,7 @@ app.get('/orders/report', requireAdmin, async (req, res) => {
 app.get('/orders', requireAdmin, async (req, res) => {
   const from = req.query.from
   const to = req.query.to
+  const scope = String(req.query.scope || 'open')
 
   try {
     if (from && to) {
@@ -818,13 +820,25 @@ app.get('/orders', requireAdmin, async (req, res) => {
       return res.json(result.rows)
     }
 
+    if (scope === 'all') {
+      const result = await query(
+        `SELECT ${ORDER_RETURNING}
+         FROM orders
+         ORDER BY created_at DESC
+         LIMIT 500`,
+      )
+      return res.json(result.rows)
+    }
+
+    const periodFrom = await resolveCashClosePeriodFrom(query)
     const result = await query(
       `SELECT ${ORDER_RETURNING}
        FROM orders
-       ORDER BY created_at DESC
-       LIMIT 200`,
+       WHERE created_at > $1::timestamptz
+       ORDER BY created_at DESC`,
+      [periodFrom],
     )
-    res.json(result.rows)
+    return res.json(result.rows)
   } catch (error) {
     res.status(500).json({ message: 'Erro ao listar pedidos', detail: error.message })
   }

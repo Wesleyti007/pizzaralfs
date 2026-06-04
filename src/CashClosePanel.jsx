@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { API_BASE_URL } from './apiBaseUrl.js'
 import {
   closeCashRegister,
   fetchCashClosePreview,
   fetchCashClosings,
+  printCashCloseDetailA4,
   printCashClosingReceipt,
   sanitizeCashCloseNotes,
 } from './cashClosing.js'
 import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
-import { formatOrderDateTime, formatOrderMoney } from './orders.js'
+import {
+  buildReportsPathForPeriod,
+  dateInputFromTimestamp,
+  fetchOrdersReport,
+  formatOrderDateTime,
+  formatOrderMoney,
+} from './orders.js'
 
-export function CashClosePanel() {
+export function CashClosePanel({ onCashClosed }) {
   const [preview, setPreview] = useState(null)
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
@@ -39,6 +47,40 @@ export function CashClosePanel() {
         printError instanceof Error
           ? printError.message
           : 'Não foi possível imprimir o comprovante.',
+      )
+    } finally {
+      setPrintingId(null)
+    }
+  }
+
+  const resolveOrdersForDetail = async (payload) => {
+    if (Array.isArray(payload.orders) && payload.orders.length > 0) {
+      return payload.orders
+    }
+    const from = dateInputFromTimestamp(payload.periodFrom)
+    const to = dateInputFromTimestamp(payload.periodTo)
+    const report = await fetchOrdersReport(API_BASE_URL, from, to)
+    return report.orders ?? []
+  }
+
+  const printDetailA4 = async (payload, label) => {
+    setPrintingId(label)
+    setError('')
+    try {
+      const orders = await resolveOrdersForDetail(payload)
+      await printCashCloseDetailA4({
+        closing: payload.closing ?? { id: payload.id },
+        summary: payload.summary,
+        periodFrom: payload.periodFrom,
+        periodTo: payload.periodTo,
+        orders,
+        notes: payload.notes ?? payload.closing?.notes ?? '',
+      })
+    } catch (printError) {
+      setError(
+        printError instanceof Error
+          ? printError.message
+          : 'Não foi possível imprimir o detalhamento A4.',
       )
     } finally {
       setPrintingId(null)
@@ -87,7 +129,8 @@ export function CashClosePanel() {
       setLastClosed(result)
       setNotes('')
       await loadPreview()
-      await printClosing(result, 'last')
+      onCashClosed?.(result)
+      await printClosing(result, 'thermal-last')
     } catch (closeError) {
       setError(
         closeError instanceof Error ? closeError.message : 'Não foi possível fechar o caixa.',
@@ -97,14 +140,9 @@ export function CashClosePanel() {
     }
   }
 
-  const handlePrintLast = () => {
-    if (!lastClosed?.closing) return
-    void printClosing(lastClosed, 'last')
-  }
-
-  const handlePrintHistory = (entry) => {
-    void printClosing(entry, `history-${entry.id}`)
-  }
+  const reportsPath = preview
+    ? buildReportsPathForPeriod(preview.periodFrom, preview.periodTo)
+    : '/relatorios'
 
   return (
     <section className="cash-close-panel" aria-label="Fechamento de caixa">
@@ -112,8 +150,9 @@ export function CashClosePanel() {
         <div>
           <h3>Fechamento de caixa</h3>
           <p>
-            Vendas desde o último fechamento de caixa. O total só zera quando você clicar em
-            &quot;Fechar caixa agora&quot; — não reseta à meia-noite.
+            Vendas desde o último fechamento. Ao fechar, a lista de pedidos abaixo zera; o
+            detalhamento fica em{' '}
+            <Link to="/relatorios">Relatórios</Link>.
           </p>
         </div>
         <button
@@ -144,6 +183,20 @@ export function CashClosePanel() {
             >
               {loading ? 'Atualizando...' : 'Atualizar totais'}
             </button>
+            <button
+              type="button"
+              className="admin-btn admin-btn-outline"
+              onClick={() => preview && void printDetailA4(preview, 'a4-preview')}
+              disabled={loading || closing || !preview || printingId === 'a4-preview'}
+            >
+              {printingId === 'a4-preview' ? 'Abrindo A4...' : 'Detalhamento A4'}
+            </button>
+            <Link
+              className="admin-btn admin-btn-outline"
+              to={reportsPath}
+            >
+              Ver em Relatórios
+            </Link>
             <button
               type="button"
               className="admin-btn admin-btn-primary"
@@ -179,16 +232,36 @@ export function CashClosePanel() {
                 Caixa fechado #{lastClosed.closing.id} às{' '}
                 {formatOrderDateTime(lastClosed.closing.createdAt)} —{' '}
                 {formatOrderMoney(lastClosed.summary?.soldTotal)} em{' '}
-                {lastClosed.summary?.soldCount ?? 0} pedido(s).
+                {lastClosed.summary?.soldCount ?? 0} pedido(s). Pedidos abaixo foram zerados; use{' '}
+                <Link to={buildReportsPathForPeriod(lastClosed.periodFrom, lastClosed.periodTo)}>
+                  Relatórios
+                </Link>{' '}
+                para o detalhamento.
               </p>
-              <button
-                type="button"
-                className="admin-btn admin-btn-outline"
-                onClick={handlePrintLast}
-                disabled={printingId === 'last'}
-              >
-                {printingId === 'last' ? 'Imprimindo...' : 'Imprimir comprovante'}
-              </button>
+              <div className="cash-close-done-actions">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-outline"
+                  onClick={() => void printClosing(lastClosed, 'thermal-last')}
+                  disabled={printingId === 'thermal-last'}
+                >
+                  {printingId === 'thermal-last' ? 'Imprimindo...' : 'Comprovante 80 mm'}
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-outline"
+                  onClick={() => void printDetailA4(lastClosed, 'a4-last')}
+                  disabled={printingId === 'a4-last'}
+                >
+                  {printingId === 'a4-last' ? 'Abrindo A4...' : 'Detalhamento A4'}
+                </button>
+                <Link
+                  className="admin-btn admin-btn-outline"
+                  to={buildReportsPathForPeriod(lastClosed.periodFrom, lastClosed.periodTo)}
+                >
+                  Relatórios
+                </Link>
+              </div>
             </div>
           )}
 
@@ -218,14 +291,30 @@ export function CashClosePanel() {
                             ? ` · ${sanitizeCashCloseNotes(entry.notes)}`
                             : ''}
                         </span>
-                        <button
-                          type="button"
-                          className="admin-btn admin-btn-ghost cash-close-history-print"
-                          onClick={() => handlePrintHistory(entry)}
-                          disabled={printingId === `history-${entry.id}`}
-                        >
-                          {printingId === `history-${entry.id}` ? '...' : 'Imprimir'}
-                        </button>
+                        <span className="cash-close-history-buttons">
+                          <button
+                            type="button"
+                            className="admin-btn admin-btn-ghost cash-close-history-print"
+                            onClick={() => void printClosing(entry, `thermal-${entry.id}`)}
+                            disabled={printingId === `thermal-${entry.id}`}
+                          >
+                            {printingId === `thermal-${entry.id}` ? '...' : '80 mm'}
+                          </button>
+                          <button
+                            type="button"
+                            className="admin-btn admin-btn-ghost cash-close-history-print"
+                            onClick={() => void printDetailA4(entry, `a4-${entry.id}`)}
+                            disabled={printingId === `a4-${entry.id}`}
+                          >
+                            {printingId === `a4-${entry.id}` ? '...' : 'A4'}
+                          </button>
+                          <Link
+                            className="admin-btn admin-btn-ghost cash-close-history-print"
+                            to={buildReportsPathForPeriod(entry.periodFrom, entry.periodTo)}
+                          >
+                            Relatórios
+                          </Link>
+                        </span>
                       </div>
                     </li>
                   ))}

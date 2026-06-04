@@ -19,6 +19,7 @@ import {
   useLocation,
   useNavigate,
   useParams,
+  useSearchParams,
 } from 'react-router-dom'
 import './App.css'
 import {
@@ -30,6 +31,7 @@ import {
   orderStatusBadgeClass,
   orderStatusLabel,
   dateInputDaysAgo,
+  dateInputFromTimestamp,
   fetchOrdersReport,
   patchOrderDetails,
   patchOrderDeliveryFee,
@@ -48,6 +50,7 @@ import { useOrderAlerts } from './useOrderAlerts.js'
 import { downloadOrdersReportExcel } from './reportExport.js'
 import { CatalogCardImage } from './CatalogCardImage.jsx'
 import { CashClosePanel } from './CashClosePanel.jsx'
+import { fetchCashClosePreview, fetchCashClosings } from './cashClosing.js'
 import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
 import {
   adminMenuPreviewSrc,
@@ -2953,29 +2956,96 @@ function OrdersReportTable({ title, orders, emptyMessage, variant = 'default' })
 }
 
 function ReportsPage() {
+  const [searchParams] = useSearchParams()
   const [fromDate, setFromDate] = useState(() => dateInputDaysAgo(30))
   const [toDate, setToDate] = useState(todayDateInputValue)
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [quickLoading, setQuickLoading] = useState('')
 
-  const loadReport = async () => {
-    setLoading(true)
+  const loadReport = useCallback(
+    async (from = fromDate, to = toDate) => {
+      setLoading(true)
+      setError('')
+      try {
+        const data = await fetchOrdersReport(API_BASE_URL, from, to)
+        setReport(data)
+      } catch (loadError) {
+        setReport(null)
+        setError(formatApiError(loadError, 'Não foi possível carregar o relatório.'))
+      } finally {
+        setLoading(false)
+      }
+    },
+    [fromDate, toDate],
+  )
+
+  useEffect(() => {
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+    if (from && to) {
+      setFromDate(from)
+      setToDate(to)
+      void loadReport(from, to)
+      return
+    }
+    void loadReport()
+  }, [searchParams])
+
+  const applyPeriodAndLoad = async (from, to, label) => {
+    setQuickLoading(label)
+    setFromDate(from)
+    setToDate(to)
     setError('')
+    setLoading(true)
     try {
-      const data = await fetchOrdersReport(API_BASE_URL, fromDate, toDate)
+      const data = await fetchOrdersReport(API_BASE_URL, from, to)
       setReport(data)
     } catch (loadError) {
       setReport(null)
       setError(formatApiError(loadError, 'Não foi possível carregar o relatório.'))
     } finally {
       setLoading(false)
+      setQuickLoading('')
     }
   }
 
-  useEffect(() => {
-    loadReport()
-  }, [])
+  const loadOpenCashReport = async () => {
+    setQuickLoading('open')
+    try {
+      const preview = await fetchCashClosePreview(API_BASE_URL)
+      await applyPeriodAndLoad(
+        dateInputFromTimestamp(preview.periodFrom),
+        dateInputFromTimestamp(preview.periodTo),
+        '',
+      )
+    } catch (loadError) {
+      setError(formatApiError(loadError, 'Não foi possível carregar o caixa aberto.'))
+      setQuickLoading('')
+    }
+  }
+
+  const loadLastClosingReport = async () => {
+    setQuickLoading('last')
+    try {
+      const closings = await fetchCashClosings(API_BASE_URL, 1)
+      const last = Array.isArray(closings) ? closings[0] : null
+      if (!last) {
+        setError('Nenhum fechamento de caixa registrado ainda.')
+        setQuickLoading('')
+        return
+      }
+      await applyPeriodAndLoad(
+        dateInputFromTimestamp(last.periodFrom),
+        dateInputFromTimestamp(last.periodTo),
+        '',
+      )
+    } catch (loadError) {
+      setError(formatApiError(loadError, 'Não foi possível carregar o último fechamento.'))
+      setQuickLoading('')
+    }
+  }
 
   const summary = report?.summary
 
@@ -2984,15 +3054,37 @@ function ReportsPage() {
       <header className="reports-page-header">
         <div>
           <h2>Relatórios</h2>
-          <p>Vendas e cancelamentos por período. Pedidos cancelados não entram no total vendido.</p>
+          <p>
+            Detalhamento pedido a pedido por período. Use após fechar o caixa — os pedidos somem da
+            tela de Pedidos e ficam aqui.
+          </p>
         </div>
       </header>
+
+      <div className="reports-quick-actions">
+        <button
+          type="button"
+          className="admin-btn admin-btn-outline"
+          onClick={() => void loadOpenCashReport()}
+          disabled={loading || quickLoading === 'open'}
+        >
+          {quickLoading === 'open' ? 'Carregando...' : 'Caixa aberto'}
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn-outline"
+          onClick={() => void loadLastClosingReport()}
+          disabled={loading || quickLoading === 'last'}
+        >
+          {quickLoading === 'last' ? 'Carregando...' : 'Último fechamento'}
+        </button>
+      </div>
 
       <form
         className="reports-filters admin-inline-form"
         onSubmit={(event) => {
           event.preventDefault()
-          loadReport()
+          void loadReport()
         }}
       >
         <label className="admin-field">
@@ -3398,6 +3490,12 @@ function OrdersPage() {
     [syncOrdersSnapshot],
   )
 
+  const handleCashClosed = useCallback(() => {
+    setFilter('pending')
+    setOrders([])
+    void loadOrders({ silent: false })
+  }, [loadOrders])
+
   useEffect(() => {
     loadOrders()
     const intervalMs = Math.max(3000, (alertSettings.pollSeconds || 5) * 1000)
@@ -3521,8 +3619,8 @@ function OrdersPage() {
         <div>
           <h2>Pedidos</h2>
           <p>
-            Bobina 80 mm, 2 vias. Deixe esta aba aberta: novos pedidos disparam alerta e podem
-            imprimir sozinhos (veja opções abaixo).
+            Só pedidos do caixa aberto (desde o último fechamento). Bobina 80 mm, 2 vias — mantenha
+            esta aba aberta para alertas e impressão automática.
           </p>
         </div>
         <button
@@ -3535,7 +3633,7 @@ function OrdersPage() {
         </button>
       </header>
 
-      <CashClosePanel />
+      <CashClosePanel onCashClosed={handleCashClosed} />
 
       <section className="orders-alert-panel" aria-label="Alertas de novos pedidos">
         <div className="orders-alert-toggles">

@@ -70,6 +70,23 @@ export function dateInputDaysAgo(days) {
   return `${year}-${month}-${day}`
 }
 
+/** Converte data/hora ISO para input type="date" (dia local). */
+export function dateInputFromTimestamp(value) {
+  if (!value) return todayDateInputValue()
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return todayDateInputValue()
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function buildReportsPathForPeriod(periodFrom, periodTo) {
+  const from = dateInputFromTimestamp(periodFrom)
+  const to = dateInputFromTimestamp(periodTo)
+  return `/relatorios?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+}
+
 export async function fetchOrdersReport(apiBaseUrl, from, to) {
   const params = new URLSearchParams({ from, to })
   const response = await adminFetch(apiBaseUrl, `/orders/report?${params}`)
