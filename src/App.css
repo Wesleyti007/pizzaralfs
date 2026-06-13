@@ -2947,6 +2947,62 @@ body.home-splash-active .brand-header {
   font-weight: 600;
 }
 
+.admin-pizza-sizes-settings {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(197, 160, 89, 0.35);
+  background: rgba(255, 252, 245, 0.9);
+  display: grid;
+  gap: 10px;
+}
+
+.admin-pizza-sizes-settings-copy strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--brand-dark);
+}
+
+.admin-pizza-sizes-settings-copy p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--brand-text-muted);
+}
+
+.admin-pizza-sizes-settings-group {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-pizza-sizes-settings-group-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--brand-text-muted);
+}
+
+.admin-pizza-sizes-settings-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.admin-pizza-size-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+  color: var(--brand-dark);
+  cursor: pointer;
+}
+
+.admin-pizza-size-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--brand-red);
+}
+
 .store-closed-banner {
   grid-column: 1 / -1;
   display: flex;

@@ -93,6 +93,8 @@ export const DEFAULT_DELIVERY_SETTINGS = {
   establishmentState: '',
   deliveryPricePerKm: 0,
   ordersOpen: true,
+  pizzaEnabledSizes: [...DEFAULT_PIZZA_ENABLED_SIZES],
+  calzoneEnabledSizes: [...DEFAULT_CALZONE_ENABLED_SIZES],
 }
 import {
   DEFAULT_CATEGORIES,
@@ -141,6 +143,13 @@ import {
   normalizeMenuItemOptions,
   normalizeMenuItemSizes,
   PIZZA_SIZE_TEMPLATES,
+  CALZONE_SIZE_TEMPLATES,
+  DEFAULT_PIZZA_ENABLED_SIZES,
+  DEFAULT_CALZONE_ENABLED_SIZES,
+  normalizeCatalogSizeSettings,
+  normalizePizzaEnabledSizes,
+  normalizeCalzoneEnabledSizes,
+  sizeLabelsForCategory,
   sizeTemplatesForCategory,
   resolveActiveCategory,
   resolveActiveSubcategory,
@@ -408,12 +417,17 @@ function buildMenuItemApiPayload(item, isActive) {
   return payload
 }
 
-function normalizeMenuItems(items, categories) {
+function getCatalogSizeSettings(source = DEFAULT_DELIVERY_SETTINGS) {
+  return normalizeCatalogSizeSettings(source)
+}
+
+function normalizeMenuItems(items, categories, catalogSizeSettings = null) {
+  const settings = getCatalogSizeSettings(catalogSizeSettings || DEFAULT_DELIVERY_SETTINGS)
   return items.map((item) => {
     const normalized = normalizeMenuItemCategories(item, categories)
     const image = typeof item.image === 'string' ? item.image : ''
     return {
-      ...normalizeMenuItemOptions(normalizeMenuItemSizes(normalized)),
+      ...normalizeMenuItemOptions(normalizeMenuItemSizes(normalized, settings)),
       id: normalizeItemId(item.id),
       image,
       imageRev: String(item.imageRev ?? '').trim(),
@@ -429,8 +443,8 @@ function persistMenuItems(items) {
 }
 
 /** Atualização em background: mantém fotos já carregadas no admin. */
-function mergeMenuItemsPreservingImages(freshFromApi, currentItems, categories) {
-  const normalized = normalizeMenuItems(freshFromApi, categories)
+function mergeMenuItemsPreservingImages(freshFromApi, currentItems, categories, catalogSizeSettings) {
+  const normalized = normalizeMenuItems(freshFromApi, categories, catalogSizeSettings)
   if (!currentItems.length) return normalized
 
   const byId = new Map(
@@ -527,6 +541,8 @@ function App() {
   const [deliverySettings, setDeliverySettings] = useState(() => ({ ...DEFAULT_DELIVERY_SETTINGS }))
   const categoriesRef = useRef(categories)
   categoriesRef.current = categories
+  const deliverySettingsRef = useRef(deliverySettings)
+  deliverySettingsRef.current = deliverySettings
   const categoriesDirtyRef = useRef(false)
 
   const setCategoriesFromAdmin = useCallback((value) => {
@@ -613,7 +629,11 @@ function App() {
             localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(nextCategories))
             setMenuItems((current) => {
               if (!current.length) return current
-              const realigned = normalizeMenuItems(current, nextCategories)
+              const realigned = normalizeMenuItems(
+                current,
+                nextCategories,
+                deliverySettingsRef.current,
+              )
               persistMenuItems(realigned)
               return realigned
             })
@@ -622,12 +642,25 @@ function App() {
 
         if (settingsResponse.ok) {
           const settings = await settingsResponse.json()
+          const nextCatalogSizeSettings = getCatalogSizeSettings(settings)
           setDeliverySettings({
             ...DEFAULT_DELIVERY_SETTINGS,
             ...settings,
             deliveryFee: Math.max(0, Number(settings.deliveryFee) || 0),
             deliveryPricePerKm: Math.max(0, Number(settings.deliveryPricePerKm) || 0),
             ordersOpen: settings.ordersOpen !== false,
+            pizzaEnabledSizes: nextCatalogSizeSettings.pizzaEnabledSizes,
+            calzoneEnabledSizes: nextCatalogSizeSettings.calzoneEnabledSizes,
+          })
+          setMenuItems((current) => {
+            if (!current.length) return current
+            const next = normalizeMenuItems(
+              current,
+              categoriesRef.current,
+              nextCatalogSizeSettings,
+            )
+            persistMenuItems(next)
+            return next
           })
         }
 
@@ -655,8 +688,17 @@ function App() {
           setMenuItems((current) => {
             const nextItems =
               adminMode && !withImages && current.length
-                ? mergeMenuItemsPreservingImages(items, current, resolvedCategories)
-                : normalizeMenuItems(items, resolvedCategories)
+                ? mergeMenuItemsPreservingImages(
+                    items,
+                    current,
+                    resolvedCategories,
+                    deliverySettingsRef.current,
+                  )
+                : normalizeMenuItems(
+                    items,
+                    resolvedCategories,
+                    deliverySettingsRef.current,
+                  )
             persistMenuItems(nextItems)
             return nextItems
           })
@@ -719,7 +761,17 @@ function App() {
       throw new Error('Falha ao salvar configurações de delivery')
     }
     const saved = await response.json()
-    setDeliverySettings({ ...DEFAULT_DELIVERY_SETTINGS, ...saved })
+    const nextSettings = {
+      ...DEFAULT_DELIVERY_SETTINGS,
+      ...saved,
+      ...getCatalogSizeSettings(saved),
+    }
+    setDeliverySettings(nextSettings)
+    setMenuItems((current) => {
+      const next = normalizeMenuItems(current, categoriesRef.current, nextSettings)
+      persistMenuItems(next)
+      return next
+    })
     return saved
   }
 
@@ -738,7 +790,11 @@ function App() {
     }
 
     const createdItem = await response.json()
-    const updated = normalizeMenuItems([createdItem, ...menuItems], categories)
+    const updated = normalizeMenuItems(
+      [createdItem, ...menuItems],
+      categories,
+      deliverySettings,
+    )
     setMenuItems(updated)
     persistMenuItems(updated)
     setMenuSyncMessage('')
@@ -769,6 +825,7 @@ function App() {
     const updated = normalizeMenuItems(
       menuItems.map((item) => (sameItemId(item.id, itemId) ? updatedItem : item)),
       categories,
+      deliverySettings,
     )
     setMenuItems(updated)
     persistMenuItems(updated)
@@ -792,7 +849,11 @@ function App() {
       categoriesDirtyRef.current = false
       setCategories(saved)
       localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(saved))
-      const updatedMenu = normalizeMenuItems(menuItems, saved)
+      const updatedMenu = normalizeMenuItems(
+        menuItems,
+        saved,
+        deliverySettingsRef.current,
+      )
       setMenuItems(updatedMenu)
       persistMenuItems(updatedMenu)
       return { ok: true }
@@ -844,6 +905,7 @@ function App() {
     const updated = normalizeMenuItems(
       menuItems.map((item) => (sameItemId(item.id, itemId) ? updatedItem : item)),
       categories,
+      deliverySettings,
     )
     setMenuItems(updated)
     persistMenuItems(updated)
@@ -1850,11 +1912,15 @@ function MenuItemCard({
   imagePriority = false,
 }) {
   const hasSizes = itemHasSizes(menuItem)
+  const visibleSizes = useMemo(
+    () => (menuItem.sizes || []).filter((size) => Number(size.price) > 0),
+    [menuItem.sizes],
+  )
   const isCalzone = isCalzoneCategory(menuItem.category)
   const showFlavorPicker = isCombinablePizzaItem(menuItem, categories)
   const hasOptions = itemHasOptions(menuItem)
   const [selectedSizeId, setSelectedSizeId] = useState(
-    () => menuItem.sizes?.[0]?.id || 'broto',
+    () => visibleSizes[0]?.id || menuItem.sizes?.[0]?.id || 'grande',
   )
   const [selectedOptionId, setSelectedOptionId] = useState(
     () => menuItem.options?.[0]?.id || '',
@@ -1863,9 +1929,16 @@ function MenuItemCard({
     normalizeItemId(menuItem.id),
   ])
 
+  useEffect(() => {
+    if (!visibleSizes.some((size) => size.id === selectedSizeId)) {
+      setSelectedSizeId(visibleSizes[0]?.id || 'grande')
+    }
+  }, [visibleSizes, selectedSizeId])
+
+  const showSizedOptions = hasSizes && visibleSizes.length > 0
   const selectedSize =
-    menuItem.sizes?.find((size) => size.id === selectedSizeId) || menuItem.sizes?.[0]
-  const pieceCount = getPiecesForSize(selectedSizeId, menuItem.sizes)
+    visibleSizes.find((size) => size.id === selectedSizeId) || visibleSizes[0]
+  const pieceCount = getPiecesForSize(selectedSizeId, visibleSizes)
   const maxFlavors = getMaxFlavorsForSize(selectedSizeId, menuItem.category)
   const unitPrice = hasSizes
     ? resolveUnitPrice(menuItem, selectedSizeId, forDelivery)
@@ -2043,12 +2116,12 @@ function MenuItemCard({
           </div>
           <strong className="card-price card-price--selected">R$ {unitPrice.toFixed(2)}</strong>
         </>
-      ) : hasSizes ? (
+      ) : showSizedOptions ? (
         <>
           <div className="pizza-sizes">
             <span className="pizza-sizes-label">Tamanho</span>
             <div className="pizza-sizes-options" role="group" aria-label="Tamanho da pizza">
-              {menuItem.sizes.map((size) => {
+              {visibleSizes.map((size) => {
                 const sizePrice = resolveUnitPrice(menuItem, size.id, forDelivery)
                 return (
                 <button
@@ -2089,7 +2162,7 @@ function MenuItemCard({
         <strong className="card-price">{formatPriceRangeLabel(menuItem)}</strong>
       )}
 
-      {hasSizes && (
+      {showSizedOptions && (
         <strong className="card-price card-price--selected">
           R$ {displayPrice.toFixed(2)}
         </strong>
@@ -4027,7 +4100,8 @@ const emptyItemForm = {
   isActive: true,
 }
 
-function buildItemFormFromMenuItem(item) {
+function buildItemFormFromMenuItem(item, catalogSizeSettings = null) {
+  const settings = getCatalogSizeSettings(catalogSizeSettings || DEFAULT_DELIVERY_SETTINGS)
   const hasPizzaSizes = itemHasSizes(item)
   return {
     category: item.category,
@@ -4036,32 +4110,22 @@ function buildItemFormFromMenuItem(item) {
     description: item.description,
     price: hasPizzaSizes ? '' : formatPriceForInput(item.price),
     deliveryPrice: hasPizzaSizes ? '' : formatPriceForInput(item.deliveryPrice),
-    sizePrices: buildSizePricesFromItem(item),
-    sizeDeliveryPrices: buildSizePricesFromItem(item, { delivery: true }),
+    sizePrices: buildSizePricesFromItem(item, { catalogSizeSettings: settings }),
+    sizeDeliveryPrices: buildSizePricesFromItem(item, {
+      delivery: true,
+      catalogSizeSettings: settings,
+    }),
     optionsText: formatOptionsForInput(item.options),
     image: item.image || '',
     isActive: item.isActive !== false,
   }
 }
 
-function AdminMenuCardPreview({ image, item, className = '' }) {
-  const src = adminMenuPreviewSrc(image, item)
-  if (!src) return null
-
-  return (
-    <div className={`image-preview${className ? ` ${className}` : ''}`}>
-      <p>Pré-visualização (como no cardápio)</p>
-      <div className="card-media menu-image-preview card-media--has-image">
-        <img src={src} alt="" className="card-media-img" decoding="async" />
-      </div>
-    </div>
-  )
-}
-
 function AdminItemFormFields({
   form,
   categories,
   subcategoryOptions,
+  catalogSizeSettings = null,
   onChange,
   onPriceChange,
   onSizePriceChange,
@@ -4069,7 +4133,8 @@ function AdminItemFormFields({
   onDeliveryPriceChange,
   onImageUpload,
 }) {
-  const sizeTemplates = sizeTemplatesForCategory(form.category)
+  const settings = getCatalogSizeSettings(catalogSizeSettings || DEFAULT_DELIVERY_SETTINGS)
+  const sizeTemplates = sizeTemplatesForCategory(form.category, settings)
   const showSizedPrices = sizeTemplates.length > 0
 
   return (
@@ -4230,12 +4295,27 @@ function AdminItemFormFields({
   )
 }
 
+function AdminMenuCardPreview({ image, item, className = '' }) {
+  const src = adminMenuPreviewSrc(image, item)
+  if (!src) return null
+
+  return (
+    <div className={`image-preview${className ? ` ${className}` : ''}`}>
+      <p>Pré-visualização (como no cardápio)</p>
+      <div className="card-media menu-image-preview card-media--has-image">
+        <img src={src} alt="" className="card-media-img" decoding="async" />
+      </div>
+    </div>
+  )
+}
+
 function AdminEditItemModal({
   editingId,
   form,
   previewItem,
   categories,
   subcategoryOptions,
+  catalogSizeSettings = null,
   isSaving,
   onClose,
   onSubmit,
@@ -4291,6 +4371,7 @@ function AdminEditItemModal({
             form={form}
             categories={categories}
             subcategoryOptions={subcategoryOptions}
+            catalogSizeSettings={catalogSizeSettings}
             onChange={onChange}
             onPriceChange={onPriceChange}
             onSizePriceChange={onSizePriceChange}
@@ -4953,6 +5034,85 @@ function AdminOrdersOpenPanel({ deliverySettings, saveDeliverySettings }) {
   )
 }
 
+function AdminCatalogSizesPanel({ deliverySettings, saveDeliverySettings }) {
+  const pizzaEnabled = normalizePizzaEnabledSizes(deliverySettings.pizzaEnabledSizes)
+  const calzoneEnabled = normalizeCalzoneEnabledSizes(deliverySettings.calzoneEnabledSizes)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleToggle = async (kind, sizeId) => {
+    const isPizza = kind === 'pizza'
+    const enabled = isPizza ? pizzaEnabled : calzoneEnabled
+    const isEnabled = enabled.includes(sizeId)
+    const next = isEnabled ? enabled.filter((id) => id !== sizeId) : [...enabled, sizeId]
+    if (next.length === 0) {
+      setError('Deixe pelo menos um tamanho ativo.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    try {
+      await saveDeliverySettings({
+        ...deliverySettings,
+        ...(isPizza ? { pizzaEnabledSizes: next } : { calzoneEnabledSizes: next }),
+      })
+    } catch (toggleError) {
+      setError(
+        toggleError instanceof Error
+          ? toggleError.message
+          : 'Não foi possível salvar os tamanhos.',
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="admin-pizza-sizes-settings" aria-label="Tamanhos no cardápio">
+      <div className="admin-pizza-sizes-settings-copy">
+        <strong>Tamanhos no cardápio</strong>
+        <p>Desmarque tamanhos para ocultar do site. Afeta todas as pizzas e calzones.</p>
+      </div>
+      <div className="admin-pizza-sizes-settings-group">
+        <span className="admin-pizza-sizes-settings-group-label">Pizzas</span>
+        <div className="admin-pizza-sizes-settings-toggles">
+          {PIZZA_SIZE_TEMPLATES.map((template) => (
+            <label key={template.id} className="admin-pizza-size-toggle">
+              <input
+                type="checkbox"
+                checked={pizzaEnabled.includes(template.id)}
+                disabled={saving}
+                onChange={() => void handleToggle('pizza', template.id)}
+              />
+              <span>
+                {template.label} ({template.pieces} pedaços)
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="admin-pizza-sizes-settings-group">
+        <span className="admin-pizza-sizes-settings-group-label">Calzones</span>
+        <div className="admin-pizza-sizes-settings-toggles">
+          {CALZONE_SIZE_TEMPLATES.map((template) => (
+            <label key={template.id} className="admin-pizza-size-toggle">
+              <input
+                type="checkbox"
+                checked={calzoneEnabled.includes(template.id)}
+                disabled={saving}
+                onChange={() => void handleToggle('calzone', template.id)}
+              />
+              <span>{template.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      {error ? <p className="admin-orders-open-error">{error}</p> : null}
+    </section>
+  )
+}
+
 function AdminDeliveryConfigBanner({ deliverySettings, onOpenSettings }) {
   const fee = Math.max(0, Number(deliverySettings.deliveryFee) || 0)
   const configured = fee > 0
@@ -5575,6 +5735,7 @@ function AdminPage({
   const [itemCategoryFilter, setItemCategoryFilter] = useState('all')
   const [itemSubcategoryFilter, setItemSubcategoryFilter] = useState('all')
   const closeItemModal = () => setItemModal(null)
+  const catalogSizeSettings = getCatalogSizeSettings(deliverySettings)
 
   useEffect(() => {
     if (!categories.length) return
@@ -5680,8 +5841,8 @@ function AdminPage({
           subcategory: '',
           price:
             isPizzaCategory(value) || isCalzoneCategory(value) ? '' : current.price,
-          sizePrices: emptySizePrices(value),
-          sizeDeliveryPrices: emptySizePrices(value),
+          sizePrices: emptySizePrices(value, catalogSizeSettings),
+          sizeDeliveryPrices: emptySizePrices(value, catalogSizeSettings),
         }
       }
       return { ...current, [name]: value }
@@ -5756,8 +5917,8 @@ function AdminPage({
       ...emptyItemForm,
       category: categories[0]?.id || 'pizzas',
       subcategory: '',
-      sizePrices: emptySizePrices(),
-      sizeDeliveryPrices: emptySizePrices(),
+      sizePrices: emptySizePrices(categories[0]?.id || 'pizzas', catalogSizeSettings),
+      sizeDeliveryPrices: emptySizePrices(categories[0]?.id || 'pizzas', catalogSizeSettings),
     })
   }
 
@@ -5765,14 +5926,14 @@ function AdminPage({
     setEditingId(null)
     setEditForm({
       ...emptyItemForm,
-      sizePrices: emptySizePrices(),
-      sizeDeliveryPrices: emptySizePrices(),
+      sizePrices: emptySizePrices('pizzas', catalogSizeSettings),
+      sizeDeliveryPrices: emptySizePrices('pizzas', catalogSizeSettings),
     })
   }
 
   const startEdit = (item) => {
     setEditingId(normalizeItemId(item.id))
-    setEditForm(buildItemFormFromMenuItem(item))
+    setEditForm(buildItemFormFromMenuItem(item, catalogSizeSettings))
     setOpenItemsCategoryId(item.category)
     setAdminTab('itens')
   }
@@ -5824,6 +5985,7 @@ function AdminPage({
         0,
         form.sizePrices,
         form.sizeDeliveryPrices,
+        catalogSizeSettings,
       )
       const invalid = sizes.find((size) => !size.price || size.price <= 0)
       if (invalid) {
@@ -5831,9 +5993,7 @@ function AdminPage({
           error: {
             variant: 'error',
             title: 'Preços incompletos',
-            description: isCalzoneCategory(form.category)
-              ? 'Preencha Pequeno e Grande.'
-              : 'Preencha Broto, Média e Grande.',
+            description: `Preencha ${sizeLabelsForCategory(form.category, catalogSizeSettings)}.`,
           },
         }
       }
@@ -6007,6 +6167,10 @@ function AdminPage({
           deliverySettings={deliverySettings}
           saveDeliverySettings={saveDeliverySettings}
         />
+        <AdminCatalogSizesPanel
+          deliverySettings={deliverySettings}
+          saveDeliverySettings={saveDeliverySettings}
+        />
         <AdminDeliveryConfigBanner
           deliverySettings={deliverySettings}
           onOpenSettings={() => setAdminTab('entrega')}
@@ -6072,6 +6236,7 @@ function AdminPage({
                 form={newItemForm}
                 categories={categories}
                 subcategoryOptions={newSubcategoryOptions}
+                catalogSizeSettings={catalogSizeSettings}
                 onChange={makeFormChangeHandler(setNewItemForm)}
                 onPriceChange={makePriceChangeHandler(setNewItemForm)}
                 onSizePriceChange={makeSizePriceChangeHandler(setNewItemForm)}
@@ -6153,6 +6318,7 @@ function AdminPage({
         previewItem={editingMenuItem}
         categories={categories}
         subcategoryOptions={editSubcategoryOptions}
+        catalogSizeSettings={catalogSizeSettings}
         isSaving={isSavingEditItem}
         onClose={closeEditModal}
         onSubmit={handleEditItemSubmit}

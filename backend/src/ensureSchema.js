@@ -5,6 +5,8 @@ const SCHEMA_PATCHES = [
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS waiter_name TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS options JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE catalog_settings ADD COLUMN IF NOT EXISTS orders_open BOOLEAN NOT NULL DEFAULT TRUE`,
+  `ALTER TABLE catalog_settings ADD COLUMN IF NOT EXISTS pizza_enabled_sizes JSONB NOT NULL DEFAULT '["broto","media","grande"]'::jsonb`,
+  `ALTER TABLE catalog_settings ADD COLUMN IF NOT EXISTS calzone_enabled_sizes JSONB NOT NULL DEFAULT '["pequeno","grande"]'::jsonb`,
 ]
 
 const CASH_CLOSINGS_TABLE = `

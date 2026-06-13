@@ -377,10 +377,109 @@ export const PIZZA_SIZE_TEMPLATES = [
   { id: 'grande', label: 'Grande', pieces: 8 },
 ]
 
+export const DEFAULT_PIZZA_ENABLED_SIZES = ['broto', 'media', 'grande']
+
+export function normalizePizzaEnabledSizes(raw) {
+  const allowed = new Set(PIZZA_SIZE_TEMPLATES.map((template) => template.id))
+  let list = raw
+  if (typeof list === 'string' && list.trim()) {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      list = null
+    }
+  }
+  if (!Array.isArray(list)) return [...DEFAULT_PIZZA_ENABLED_SIZES]
+  const filtered = list
+    .map((entry) => String(entry || '').trim())
+    .filter((id) => allowed.has(id))
+  return filtered.length ? filtered : [...DEFAULT_PIZZA_ENABLED_SIZES]
+}
+
+export function pizzaSizeLabels(enabledPizzaSizeIds = null) {
+  const enabled = normalizePizzaEnabledSizes(enabledPizzaSizeIds)
+  return enabled
+    .map((id) => PIZZA_SIZE_TEMPLATES.find((template) => template.id === id)?.label || id)
+    .join(', ')
+}
+
 export const CALZONE_SIZE_TEMPLATES = [
   { id: 'pequeno', label: 'Pequeno', pieces: 1 },
   { id: 'grande', label: 'Grande', pieces: 1 },
 ]
+
+export const DEFAULT_CALZONE_ENABLED_SIZES = ['pequeno', 'grande']
+
+export function normalizeCalzoneEnabledSizes(raw) {
+  const allowed = new Set(CALZONE_SIZE_TEMPLATES.map((template) => template.id))
+  let list = raw
+  if (typeof list === 'string' && list.trim()) {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      list = null
+    }
+  }
+  if (!Array.isArray(list)) return [...DEFAULT_CALZONE_ENABLED_SIZES]
+  const filtered = list
+    .map((entry) => String(entry || '').trim())
+    .filter((id) => allowed.has(id))
+  return filtered.length ? filtered : [...DEFAULT_CALZONE_ENABLED_SIZES]
+}
+
+export function calzoneSizeLabels(enabledCalzoneSizeIds = null) {
+  const enabled = normalizeCalzoneEnabledSizes(enabledCalzoneSizeIds)
+  return enabled
+    .map((id) => CALZONE_SIZE_TEMPLATES.find((template) => template.id === id)?.label || id)
+    .join(', ')
+}
+
+export const DEFAULT_CATALOG_SIZE_SETTINGS = {
+  pizzaEnabledSizes: DEFAULT_PIZZA_ENABLED_SIZES,
+  calzoneEnabledSizes: DEFAULT_CALZONE_ENABLED_SIZES,
+}
+
+export function normalizeCatalogSizeSettings(raw = {}) {
+  return {
+    pizzaEnabledSizes: normalizePizzaEnabledSizes(raw.pizzaEnabledSizes),
+    calzoneEnabledSizes: normalizeCalzoneEnabledSizes(raw.calzoneEnabledSizes),
+  }
+}
+
+export function sizeLabelsForCategory(categoryId, catalogSizeSettings = null) {
+  const settings = normalizeCatalogSizeSettings(catalogSizeSettings || {})
+  if (isCalzoneCategory(categoryId)) return calzoneSizeLabels(settings.calzoneEnabledSizes)
+  if (isPizzaCategory(categoryId)) return pizzaSizeLabels(settings.pizzaEnabledSizes)
+  return ''
+}
+
+export function normalizeCalzoneSizes(rawSizes, fallbackPrice = 0, enabledCalzoneSizeIds = null) {
+  const enabledSet = new Set(normalizeCalzoneEnabledSizes(enabledCalzoneSizeIds))
+  const byId = new Map()
+  for (const entry of parseMenuItemSizesField(rawSizes)) {
+    if (entry?.id) byId.set(entry.id, entry)
+  }
+
+  const fallback = Number(fallbackPrice) || 0
+
+  return CALZONE_SIZE_TEMPLATES.filter((template) => enabledSet.has(template.id)).map(
+    (template) => {
+      const existing = byId.get(template.id) || {}
+      const price = Number(existing.price ?? fallback)
+      const deliveryPrice = Number(existing.deliveryPrice)
+      const size = {
+        id: template.id,
+        label: template.label,
+        pieces: template.pieces,
+        price: Number.isFinite(price) && price >= 0 ? price : 0,
+      }
+      if (Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
+        size.deliveryPrice = deliveryPrice
+      }
+      return size
+    },
+  )
+}
 
 export const CALZONE_DEFAULT_IMAGE = '/calzone-default.png?rev=1'
 
@@ -434,7 +533,8 @@ function normalizeStoredSizes(rawSizes, fallbackPrice = 0) {
     .filter((size) => size.price > 0 || size.id)
 }
 
-export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
+export function normalizePizzaSizes(rawSizes, fallbackPrice = 0, enabledPizzaSizeIds = null) {
+  const enabledSet = new Set(normalizePizzaEnabledSizes(enabledPizzaSizeIds))
   const byId = new Map()
   for (const entry of parseMenuItemSizesField(rawSizes)) {
     if (entry?.id) byId.set(entry.id, entry)
@@ -442,7 +542,7 @@ export function normalizePizzaSizes(rawSizes, fallbackPrice = 0) {
 
   const fallback = Number(fallbackPrice) || 0
 
-  return PIZZA_SIZE_TEMPLATES.map((template) => {
+  return PIZZA_SIZE_TEMPLATES.filter((template) => enabledSet.has(template.id)).map((template) => {
     const existing = byId.get(template.id) || {}
     const price = Number(existing.price ?? fallback)
     const deliveryPrice = Number(existing.deliveryPrice)
@@ -735,31 +835,47 @@ export function formatPriceForInput(price) {
   return applyPriceMask(String(Math.round(numeric * 100)))
 }
 
-export function sizeTemplatesForCategory(categoryId) {
-  if (isCalzoneCategory(categoryId)) return CALZONE_SIZE_TEMPLATES
-  if (isPizzaCategory(categoryId)) return PIZZA_SIZE_TEMPLATES
+export function sizeTemplatesForCategory(categoryId, catalogSizeSettings = null) {
+  const settings = Array.isArray(catalogSizeSettings)
+    ? { pizzaEnabledSizes: catalogSizeSettings, calzoneEnabledSizes: null }
+    : normalizeCatalogSizeSettings(catalogSizeSettings || {})
+  if (isCalzoneCategory(categoryId)) {
+    const enabled = new Set(settings.calzoneEnabledSizes)
+    return CALZONE_SIZE_TEMPLATES.filter((template) => enabled.has(template.id))
+  }
+  if (isPizzaCategory(categoryId)) {
+    const enabled = new Set(settings.pizzaEnabledSizes)
+    return PIZZA_SIZE_TEMPLATES.filter((template) => enabled.has(template.id))
+  }
   return []
 }
 
-export function emptySizePrices(categoryId = 'pizzas') {
+export function emptySizePrices(categoryId = 'pizzas', catalogSizeSettings = null) {
   return Object.fromEntries(
-    sizeTemplatesForCategory(categoryId).map((template) => [template.id, '']),
+    sizeTemplatesForCategory(categoryId, catalogSizeSettings).map((template) => [template.id, '']),
   )
 }
 
-export function buildSizePricesFromItem(item, { delivery = false } = {}) {
-  const prices = emptySizePrices(item?.category)
+export function buildSizePricesFromItem(item, { delivery = false, catalogSizeSettings = null } = {}) {
+  const prices = emptySizePrices(item?.category, catalogSizeSettings)
   if (!itemHasSizes(item)) return prices
 
   for (const size of item.sizes) {
+    if (!(size.id in prices)) continue
     const value = delivery ? size.deliveryPrice : size.price
     prices[size.id] = value > 0 ? formatPriceForInput(value) : ''
   }
   return prices
 }
 
-export function buildSizesFromForm(category, price, sizePrices, sizeDeliveryPrices = null) {
-  const templates = sizeTemplatesForCategory(category)
+export function buildSizesFromForm(
+  category,
+  price,
+  sizePrices,
+  sizeDeliveryPrices = null,
+  catalogSizeSettings = null,
+) {
+  const templates = sizeTemplatesForCategory(category, catalogSizeSettings)
   if (!templates.length) return []
 
   return templates.map((template) => {
@@ -778,18 +894,10 @@ export function buildSizesFromForm(category, price, sizePrices, sizeDeliveryPric
   })
 }
 
-export function normalizeMenuItemSizes(item) {
+export function normalizeMenuItemSizes(item, catalogSizeSettings = null) {
+  const settings = normalizeCatalogSizeSettings(catalogSizeSettings || {})
   if (isCalzoneCategory(item.category)) {
-    let sizes = normalizeStoredSizes(item.sizes, item.price)
-    if (!sizes.length) {
-      sizes = normalizeStoredSizes(
-        [
-          { id: 'pequeno', label: 'Pequeno', pieces: 1, price: 17 },
-          { id: 'grande', label: 'Grande', pieces: 1, price: 24 },
-        ],
-        item.price,
-      )
-    }
+    const sizes = normalizeCalzoneSizes(item.sizes, item.price, settings.calzoneEnabledSizes)
     const positivePrices = sizes.map((size) => size.price).filter((value) => value > 0)
     const price =
       positivePrices.length > 0 ? Math.min(...positivePrices) : Number(item.price) || 0
@@ -800,7 +908,7 @@ export function normalizeMenuItemSizes(item) {
     return { ...item, sizes: [] }
   }
 
-  const sizes = normalizePizzaSizes(item.sizes, item.price)
+  const sizes = normalizePizzaSizes(item.sizes, item.price, settings.pizzaEnabledSizes)
   const positivePrices = sizes.map((size) => size.price).filter((value) => value > 0)
   const price =
     positivePrices.length > 0 ? Math.min(...positivePrices) : Number(item.price) || 0

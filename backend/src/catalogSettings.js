@@ -1,4 +1,5 @@
 import { normalizeCepDigits } from './deliveryKm.js'
+import { DEFAULT_PIZZA_ENABLED_SIZES, DEFAULT_CALZONE_ENABLED_SIZES, normalizePizzaEnabledSizes, normalizeCalzoneEnabledSizes } from './menuSizes.js'
 
 function parseOrdersOpen(value) {
   if (value === false || value === 'false' || value === 0 || value === '0') return false
@@ -16,6 +17,8 @@ function rowToSettings(row = {}) {
     establishmentState: String(row.establishmentState || '').trim(),
     deliveryPricePerKm: Math.max(0, Number(row.deliveryPricePerKm) || 0),
     ordersOpen: parseOrdersOpen(row.ordersOpen),
+    pizzaEnabledSizes: normalizePizzaEnabledSizes(row.pizzaEnabledSizes),
+    calzoneEnabledSizes: normalizeCalzoneEnabledSizes(row.calzoneEnabledSizes),
   }
 }
 
@@ -30,7 +33,9 @@ export async function loadCatalogSettings(query) {
               establishment_city AS "establishmentCity",
               establishment_state AS "establishmentState",
               delivery_price_per_km AS "deliveryPricePerKm",
-              orders_open AS "ordersOpen"
+              orders_open AS "ordersOpen",
+              pizza_enabled_sizes AS "pizzaEnabledSizes",
+              calzone_enabled_sizes AS "calzoneEnabledSizes"
        FROM catalog_settings WHERE id = 1`,
     )
     return rowToSettings(result.rows[0])
@@ -49,9 +54,9 @@ export async function saveCatalogSettings(query, raw) {
        id, categories, delivery_fee,
        establishment_cep, establishment_street, establishment_number,
        establishment_neighborhood, establishment_city, establishment_state,
-       delivery_price_per_km, orders_open, updated_at
+       delivery_price_per_km, orders_open, pizza_enabled_sizes, calzone_enabled_sizes, updated_at
      )
-     VALUES (1, '[]'::jsonb, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+     VALUES (1, '[]'::jsonb, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, NOW())
      ON CONFLICT (id)
      DO UPDATE SET
        delivery_fee = EXCLUDED.delivery_fee,
@@ -63,6 +68,8 @@ export async function saveCatalogSettings(query, raw) {
        establishment_state = EXCLUDED.establishment_state,
        delivery_price_per_km = EXCLUDED.delivery_price_per_km,
        orders_open = EXCLUDED.orders_open,
+       pizza_enabled_sizes = EXCLUDED.pizza_enabled_sizes,
+       calzone_enabled_sizes = EXCLUDED.calzone_enabled_sizes,
        updated_at = NOW()`,
     [
       settings.deliveryFee,
@@ -74,6 +81,8 @@ export async function saveCatalogSettings(query, raw) {
       settings.establishmentState,
       settings.deliveryPricePerKm,
       settings.ordersOpen,
+      JSON.stringify(settings.pizzaEnabledSizes),
+      JSON.stringify(settings.calzoneEnabledSizes),
     ],
   )
 

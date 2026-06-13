@@ -15,7 +15,7 @@ import {
   resolveImageVariant,
   serveMenuItemImageFromStored,
 } from './serveMenuImage.js'
-import { buildMenuItemPayload, normalizeMenuItemRow } from './menuSizes.js'
+import { buildMenuItemPayload, isCalzoneCategory, isPizzaCategory, normalizeCalzoneEnabledSizes, normalizeMenuItemRow, normalizePizzaEnabledSizes } from './menuSizes.js'
 import { validateOrderItemsMinQty } from './minOrderQty.js'
 import { ensureOrderSchema } from './ensureSchema.js'
 import {
@@ -46,7 +46,11 @@ const imageUpload = multer({
 })
 
 async function buildMenuItemPayloadWithImage(body, { forUpdate = false } = {}) {
-  const built = buildMenuItemPayload(body)
+  const settings = await loadCatalogSettings(query)
+  const built = buildMenuItemPayload(body, {
+    enabledPizzaSizes: settings.pizzaEnabledSizes,
+    enabledCalzoneSizes: settings.calzoneEnabledSizes,
+  })
   if (built.error) {
     return built
   }
@@ -166,8 +170,16 @@ function rowHasStoredImage(raw) {
   return storedMenuItemHasImage(raw)
 }
 
-function formatMenuItemForList(row, { includeImages = false } = {}) {
+function formatMenuItemForList(row, { includeImages = false, enabledPizzaSizes = null, enabledCalzoneSizes = null } = {}) {
   const item = normalizeMenuItemRow(row)
+  if (isPizzaCategory(item.category) && enabledPizzaSizes) {
+    const enabled = new Set(normalizePizzaEnabledSizes(enabledPizzaSizes))
+    item.sizes = (item.sizes || []).filter((size) => enabled.has(size.id))
+  }
+  if (isCalzoneCategory(item.category) && enabledCalzoneSizes) {
+    const enabled = new Set(normalizeCalzoneEnabledSizes(enabledCalzoneSizes))
+    item.sizes = (item.sizes || []).filter((size) => enabled.has(size.id))
+  }
   const hasImage = rowHasStoredImage(item.image)
   const imageRev = hasImage
     ? String(row.image_rev || menuItemImageRevision(item.image) || '')
@@ -183,6 +195,7 @@ app.get('/menu-items', requireAdminForInactiveMenu, async (req, res) => {
   try {
     const includeInactive = req.query.all === '1'
     const includeImages = req.query.includeImages === '1'
+    const settings = await loadCatalogSettings(query)
     const result = await query(
       `SELECT ${MENU_ITEM_COLUMNS},
               CASE
@@ -195,7 +208,13 @@ app.get('/menu-items', requireAdminForInactiveMenu, async (req, res) => {
        ORDER BY id DESC`,
     )
     return res.json(
-      result.rows.map((row) => formatMenuItemForList(row, { includeImages })),
+      result.rows.map((row) =>
+        formatMenuItemForList(row, {
+          includeImages,
+          enabledPizzaSizes: settings.pizzaEnabledSizes,
+          enabledCalzoneSizes: settings.calzoneEnabledSizes,
+        }),
+      ),
     )
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao listar produtos', detail: error.message })

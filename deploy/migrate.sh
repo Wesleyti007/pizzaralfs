@@ -26,6 +26,8 @@ MIGRATIONS=(
   migrate_menu_item_options.sql
   migrate_cash_closings.sql
   migrate_orders_open.sql
+  migrate_pizza_enabled_sizes.sql
+  migrate_calzone_enabled_sizes.sql
 )
 
 psql_exec() {
