@@ -453,6 +453,40 @@ export function sizeLabelsForCategory(categoryId, catalogSizeSettings = null) {
   return ''
 }
 
+export const CATALOG_SIZE_SETTINGS_STORAGE_KEY = 'pizza-ralfs-catalog-size-settings'
+
+export function loadCachedCatalogSizeSettings() {
+  try {
+    const raw = localStorage.getItem(CATALOG_SIZE_SETTINGS_STORAGE_KEY)
+    if (raw) return normalizeCatalogSizeSettings(JSON.parse(raw))
+  } catch {
+    // ignore cache parse errors
+  }
+  return normalizeCatalogSizeSettings(DEFAULT_CATALOG_SIZE_SETTINGS)
+}
+
+export function persistCachedCatalogSizeSettings(catalogSizeSettings) {
+  const normalized = normalizeCatalogSizeSettings(catalogSizeSettings || {})
+  localStorage.setItem(CATALOG_SIZE_SETTINGS_STORAGE_KEY, JSON.stringify(normalized))
+}
+
+/** Filtra tamanhos visíveis no cardápio (não reintroduz tamanhos desativados). */
+export function applyCatalogSizeSettingsToMenuItems(items, catalogSizeSettings = null) {
+  if (!Array.isArray(items)) return []
+  const settings = normalizeCatalogSizeSettings(catalogSizeSettings || {})
+  return items.map((item) => {
+    if (isPizzaCategory(item.category)) {
+      const enabled = new Set(settings.pizzaEnabledSizes)
+      return { ...item, sizes: (item.sizes || []).filter((size) => enabled.has(size.id)) }
+    }
+    if (isCalzoneCategory(item.category)) {
+      const enabled = new Set(settings.calzoneEnabledSizes)
+      return { ...item, sizes: (item.sizes || []).filter((size) => enabled.has(size.id)) }
+    }
+    return item
+  })
+}
+
 export function normalizeCalzoneSizes(rawSizes, fallbackPrice = 0, enabledCalzoneSizeIds = null) {
   const enabledSet = new Set(normalizeCalzoneEnabledSizes(enabledCalzoneSizeIds))
   const byId = new Map()

@@ -112,10 +112,13 @@ import {
   resolveActiveTableNumber,
   getItemCategoryLabel,
   getSubcategoryLabel,
+  applyCatalogSizeSettingsToMenuItems,
   applyPriceMask,
   buildMultiFlavorCartName,
   buildSizePricesFromItem,
   buildSizesFromForm,
+  loadCachedCatalogSizeSettings,
+  persistCachedCatalogSizeSettings,
   computeMultiFlavorPrice,
   emptySizePrices,
   formatPriceForInput,
@@ -157,6 +160,10 @@ import {
 } from './catalog.js'
 import { calcCartTotals, computeMultiFlavorPriceForMode, resolveUnitPrice } from './pricing.js'
 import {
+  catalogSizeSettingsSignature,
+  reloadIfServerCatalogVersionChanged,
+} from './catalogUpdate.js'
+import {
   MENU_IMAGE_HEIGHT,
   MENU_IMAGE_WIDTH,
   normalizeMenuImageFile,
@@ -187,8 +194,7 @@ import {
   verifyWaiterSession,
 } from './apiAuth.js'
 const LOGO_URL = '/logo-ralfs-web.png'
-const DEVELOPER_LINKEDIN_URL =
-  'https://www.linkedin.com/in/wesley-santos-515b73152/'
+const DEVELOPER_URL = 'https://www.wesleyti.com.br/'
 
 const CatalogSplashContext = createContext('hidden')
 
@@ -486,19 +492,20 @@ function loadMenu(categories) {
     localStorage.setItem(CATALOG_CACHE_VERSION_KEY, CATALOG_CACHE_VERSION)
   }
 
+  const catalogSizeSettings = loadCachedCatalogSizeSettings()
   const saved = localStorage.getItem(STORAGE_KEY)
-  if (!saved) return normalizeMenuItems(defaultMenu, categories)
+  if (!saved) return normalizeMenuItems(defaultMenu, categories, catalogSizeSettings)
 
   try {
     const parsed = JSON.parse(saved)
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return normalizeMenuItems(parsed, categories)
+      return normalizeMenuItems(parsed, categories, catalogSizeSettings)
     }
   } catch {
-    return normalizeMenuItems(defaultMenu, categories)
+    return normalizeMenuItems(defaultMenu, categories, catalogSizeSettings)
   }
 
-  return normalizeMenuItems(defaultMenu, categories)
+  return normalizeMenuItems(defaultMenu, categories, catalogSizeSettings)
 }
 
 function loadTables() {
@@ -620,6 +627,7 @@ function App() {
         ])
 
         let nextCategories = null
+        let catalogSizeSettingsForSync = loadCachedCatalogSizeSettings()
 
         if (categoriesResponse.ok) {
           const apiCategories = await categoriesResponse.json()
@@ -642,8 +650,18 @@ function App() {
 
         if (settingsResponse.ok) {
           const settings = await settingsResponse.json()
+          if (reloadIfServerCatalogVersionChanged(settings.catalogVersion)) {
+            return
+          }
           const nextCatalogSizeSettings = getCatalogSizeSettings(settings)
-          setDeliverySettings({
+          const prevSizeSignature = catalogSizeSettingsSignature(deliverySettingsRef.current)
+          const nextSizeSignature = catalogSizeSettingsSignature(nextCatalogSizeSettings)
+          if (prevSizeSignature !== nextSizeSignature) {
+            localStorage.removeItem(STORAGE_KEY)
+          }
+          catalogSizeSettingsForSync = nextCatalogSizeSettings
+          persistCachedCatalogSizeSettings(nextCatalogSizeSettings)
+          const nextDeliverySettings = {
             ...DEFAULT_DELIVERY_SETTINGS,
             ...settings,
             deliveryFee: Math.max(0, Number(settings.deliveryFee) || 0),
@@ -651,7 +669,9 @@ function App() {
             ordersOpen: settings.ordersOpen !== false,
             pizzaEnabledSizes: nextCatalogSizeSettings.pizzaEnabledSizes,
             calzoneEnabledSizes: nextCatalogSizeSettings.calzoneEnabledSizes,
-          })
+          }
+          deliverySettingsRef.current = nextDeliverySettings
+          setDeliverySettings(nextDeliverySettings)
           setMenuItems((current) => {
             if (!current.length) return current
             const next = normalizeMenuItems(
@@ -692,12 +712,12 @@ function App() {
                     items,
                     current,
                     resolvedCategories,
-                    deliverySettingsRef.current,
+                    catalogSizeSettingsForSync,
                   )
                 : normalizeMenuItems(
                     items,
                     resolvedCategories,
-                    deliverySettingsRef.current,
+                    catalogSizeSettingsForSync,
                   )
             persistMenuItems(nextItems)
             return nextItems
@@ -766,6 +786,8 @@ function App() {
       ...saved,
       ...getCatalogSizeSettings(saved),
     }
+    persistCachedCatalogSizeSettings(nextSettings)
+    deliverySettingsRef.current = nextSettings
     setDeliverySettings(nextSettings)
     setMenuItems((current) => {
       const next = normalizeMenuItems(current, categoriesRef.current, nextSettings)
@@ -1098,7 +1120,7 @@ function DeveloperCredit() {
       <p>
         Desenvolvido por{' '}
         <a
-          href={DEVELOPER_LINKEDIN_URL}
+          href={DEVELOPER_URL}
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -1935,7 +1957,8 @@ function MenuItemCard({
     }
   }, [visibleSizes, selectedSizeId])
 
-  const showSizedOptions = hasSizes && visibleSizes.length > 0
+  const showSizePicker = hasSizes && visibleSizes.length > 1
+  const showSizedCatalog = hasSizes && visibleSizes.length > 0
   const selectedSize =
     visibleSizes.find((size) => size.id === selectedSizeId) || visibleSizes[0]
   const pieceCount = getPiecesForSize(selectedSizeId, visibleSizes)
@@ -2116,30 +2139,32 @@ function MenuItemCard({
           </div>
           <strong className="card-price card-price--selected">R$ {unitPrice.toFixed(2)}</strong>
         </>
-      ) : showSizedOptions ? (
+      ) : showSizedCatalog ? (
         <>
-          <div className="pizza-sizes">
-            <span className="pizza-sizes-label">Tamanho</span>
-            <div className="pizza-sizes-options" role="group" aria-label="Tamanho da pizza">
-              {visibleSizes.map((size) => {
-                const sizePrice = resolveUnitPrice(menuItem, size.id, forDelivery)
-                return (
-                <button
-                  key={size.id}
-                  type="button"
-                  className={`pizza-size-btn${selectedSizeId === size.id ? ' is-active' : ''}`}
-                  onClick={() => handleSizeChange(size.id)}
-                >
-                  <span className="pizza-size-btn-label">{size.label}</span>
-                  <span className="pizza-size-btn-meta">
-                    {isCalzone ? '1 sabor' : `${size.pieces} pedaços`}
-                  </span>
-                  <span className="pizza-size-btn-price">R$ {sizePrice.toFixed(2)}</span>
-                </button>
-                )
-              })}
+          {showSizePicker ? (
+            <div className="pizza-sizes">
+              <span className="pizza-sizes-label">Tamanho</span>
+              <div className="pizza-sizes-options" role="group" aria-label="Tamanho da pizza">
+                {visibleSizes.map((size) => {
+                  const sizePrice = resolveUnitPrice(menuItem, size.id, forDelivery)
+                  return (
+                    <button
+                      key={size.id}
+                      type="button"
+                      className={`pizza-size-btn${selectedSizeId === size.id ? ' is-active' : ''}`}
+                      onClick={() => handleSizeChange(size.id)}
+                    >
+                      <span className="pizza-size-btn-label">{size.label}</span>
+                      <span className="pizza-size-btn-meta">
+                        {isCalzone ? '1 sabor' : `${size.pieces} pedaços`}
+                      </span>
+                      <span className="pizza-size-btn-price">R$ {sizePrice.toFixed(2)}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {showFlavorPicker ? (
             <PizzaSlicePicker
@@ -2162,7 +2187,7 @@ function MenuItemCard({
         <strong className="card-price">{formatPriceRangeLabel(menuItem)}</strong>
       )}
 
-      {showSizedOptions && (
+      {showSizedCatalog && (
         <strong className="card-price card-price--selected">
           R$ {displayPrice.toFixed(2)}
         </strong>
@@ -2247,9 +2272,13 @@ function HomePage({
     subcategoryId,
   )
   const activeCategoryData = categories.find((category) => category.id === activeCategory)
+  const catalogMenuItems = useMemo(
+    () => applyCatalogSizeSettingsToMenuItems(menuItems, deliverySettings),
+    [menuItems, deliverySettings],
+  )
   const filteredMenu = useMemo(
-    () => filterMenuByCatalog(menuItems, categories, activeCategory, activeSubcategory),
-    [menuItems, categories, activeCategory, activeSubcategory],
+    () => filterMenuByCatalog(catalogMenuItems, categories, activeCategory, activeSubcategory),
+    [catalogMenuItems, categories, activeCategory, activeSubcategory],
   )
   const displayMenu = useMemo(
     () => filterMenuItemsBySearch(filteredMenu, menuSearchQuery, categories),
@@ -2261,8 +2290,8 @@ function HomePage({
     setMenuSearchQuery('')
   }, [activeCategory, activeSubcategory])
   const pizzaMenuItems = useMemo(
-    () => menuItems.filter((item) => isCombinablePizzaItem(item, categories)),
-    [menuItems, categories],
+    () => catalogMenuItems.filter((item) => isCombinablePizzaItem(item, categories)),
+    [catalogMenuItems, categories],
   )
 
   const addToCart = (cartItem) => {

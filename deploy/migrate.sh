@@ -28,6 +28,7 @@ MIGRATIONS=(
   migrate_orders_open.sql
   migrate_pizza_enabled_sizes.sql
   migrate_calzone_enabled_sizes.sql
+  migrate_catalog_sizes_rafs.sql
 )
 
 psql_exec() {

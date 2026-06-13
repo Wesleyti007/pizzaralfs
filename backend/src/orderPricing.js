@@ -1,4 +1,12 @@
-import { normalizeMenuItemRow } from './menuSizes.js'
+import {
+  isCalzoneCategory,
+  isPizzaCategory,
+  normalizeCalzoneEnabledSizes,
+  normalizeMenuItemRow,
+  normalizePizzaEnabledSizes,
+  pizzaSizeLabel,
+  calzoneSizeLabel,
+} from './menuSizes.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options,
   min_order_qty, image_base64 AS image, is_active`
@@ -35,7 +43,24 @@ function getSizePrice(menuItem, sizeId, forDelivery) {
   return Number(size.price) || 0
 }
 
-function computeLineUnitPrice(menuById, line, forDelivery) {
+function enabledSizeIdsForItem(menuItem, catalogSettings) {
+  if (!catalogSettings || !menuItem) return null
+  if (isPizzaCategory(menuItem.category)) {
+    return new Set(normalizePizzaEnabledSizes(catalogSettings.pizzaEnabledSizes))
+  }
+  if (isCalzoneCategory(menuItem.category)) {
+    return new Set(normalizeCalzoneEnabledSizes(catalogSettings.calzoneEnabledSizes))
+  }
+  return null
+}
+
+function sizeLabelForCategory(category, sizeId) {
+  if (isCalzoneCategory(category)) return calzoneSizeLabel(sizeId)
+  if (isPizzaCategory(category)) return pizzaSizeLabel(sizeId)
+  return sizeId
+}
+
+function computeLineUnitPrice(menuById, line, forDelivery, catalogSettings) {
   const primaryId = Number(line.id)
   const flavorIds = normalizeFlavorIdList(line.flavorIds?.length ? line.flavorIds : [primaryId])
   const sizeId = String(line.sizeId || '').trim()
@@ -43,16 +68,33 @@ function computeLineUnitPrice(menuById, line, forDelivery) {
   const prices = flavorIds
     .map((id) => menuById.get(id))
     .filter(Boolean)
-    .map((item) => getSizePrice(item, sizeId, forDelivery))
+    .map((item) => {
+      const enabledSizes = enabledSizeIdsForItem(item, catalogSettings)
+      if (enabledSizes && sizeId && !enabledSizes.has(sizeId)) {
+        const label = sizeLabelForCategory(item.category, sizeId)
+        return { error: `Tamanho indisponivel: ${label}` }
+      }
+      return getSizePrice(item, sizeId, forDelivery)
+    })
+
+  for (const price of prices) {
+    if (price && typeof price === 'object' && price.error) {
+      return price
+    }
+  }
 
   if (!prices.length) {
     return { error: `Item indisponivel: ${line.name || primaryId}` }
   }
 
-  return { unitPrice: Math.max(...prices) }
+  return { unitPrice: Math.max(...prices.filter((value) => typeof value === 'number')) }
 }
 
-export async function priceOrderLinesFromDb(queryFn, rawItems, { forDelivery = false } = {}) {
+export async function priceOrderLinesFromDb(
+  queryFn,
+  rawItems,
+  { forDelivery = false, catalogSettings = null } = {},
+) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { error: 'Pedido precisa ter itens' }
   }
@@ -97,7 +139,7 @@ export async function priceOrderLinesFromDb(queryFn, rawItems, { forDelivery = f
       return { error: `Item indisponivel: ${line.name || primaryId}` }
     }
 
-    const priced = computeLineUnitPrice(menuById, line, forDelivery)
+    const priced = computeLineUnitPrice(menuById, line, forDelivery, catalogSettings)
     if (priced.error) return { error: priced.error }
 
     const unitPrice = Math.round(priced.unitPrice * 100) / 100

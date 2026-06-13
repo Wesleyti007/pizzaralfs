@@ -27,6 +27,7 @@ import {
   resolveCashClosePeriodFrom,
 } from './cashClosing.js'
 import { postAdminLogin, postWaiterLogin, requireAdmin, requireWaiter } from './adminAuth.js'
+import { CATALOG_CLIENT_VERSION } from './catalogVersion.js'
 import { priceOrderLinesFromDb } from './orderPricing.js'
 import { orderCreateRateLimit } from './rateLimit.js'
 
@@ -118,7 +119,7 @@ app.get('/categories', async (_req, res) => {
 app.get('/settings', async (_req, res) => {
   try {
     const settings = await loadCatalogSettings(query)
-    return res.json(settings)
+    return res.json({ ...settings, catalogVersion: CATALOG_CLIENT_VERSION })
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao carregar configuracoes', detail: error.message })
   }
@@ -127,7 +128,7 @@ app.get('/settings', async (_req, res) => {
 app.put('/settings', requireAdmin, async (req, res) => {
   try {
     const saved = await saveCatalogSettings(query, req.body)
-    return res.json(saved)
+    return res.json({ ...saved, catalogVersion: CATALOG_CLIENT_VERSION })
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao salvar configuracoes', detail: error.message })
   }
@@ -431,9 +432,15 @@ app.get('/health', async (_req, res) => {
       ok: true,
       message: 'API e banco conectados',
       release: APP_RELEASE,
+      catalogVersion: CATALOG_CLIENT_VERSION,
     })
   } catch {
-    res.status(500).json({ ok: false, message: 'Falha na conexao com banco', release: APP_RELEASE })
+    res.status(500).json({
+      ok: false,
+      message: 'Falha na conexao com banco',
+      release: APP_RELEASE,
+      catalogVersion: CATALOG_CLIENT_VERSION,
+    })
   }
 })
 
@@ -526,8 +533,9 @@ function validateDeliveryFields({
 }
 
 app.post('/orders', orderCreateRateLimit, async (req, res) => {
+  let catalogSettings
   try {
-    const catalogSettings = await loadCatalogSettings(query)
+    catalogSettings = await loadCatalogSettings(query)
     if (!catalogSettings.ordersOpen) {
       return res.status(403).json({
         message:
@@ -556,6 +564,7 @@ app.post('/orders', orderCreateRateLimit, async (req, res) => {
   try {
     const priced = await priceOrderLinesFromDb(query, items, {
       forDelivery: orderType === 'delivery',
+      catalogSettings,
     })
     if (priced.error) {
       return res.status(400).json({ message: priced.error })
