@@ -14,7 +14,7 @@ import {
 } from './menuExtras.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options, extras,
-  min_order_qty, image_base64 AS image, is_active`
+  min_order_qty, is_active`
 
 function normalizeFlavorIdList(raw) {
   const list = Array.isArray(raw) ? raw : raw != null && raw !== '' ? [raw] : []

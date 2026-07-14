@@ -30,6 +30,7 @@ MIGRATIONS=(
   migrate_calzone_enabled_sizes.sql
   migrate_catalog_sizes_rafs.sql
   migrate_menu_item_extras.sql
+  migrate_menu_item_image_rev.sql
 )
 
 psql_exec() {

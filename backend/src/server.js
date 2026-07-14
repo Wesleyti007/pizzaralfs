@@ -33,7 +33,10 @@ import { priceOrderLinesFromDb } from './orderPricing.js'
 import { orderCreateRateLimit } from './rateLimit.js'
 
 const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options, extras,
-  min_order_qty, image_base64 AS image, is_active`
+  min_order_qty, image_base64 AS image, image_rev, is_active`
+
+const MENU_ITEM_LIST_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options, extras,
+  min_order_qty, image_rev, is_active`
 
 const imageUpload = multer({
   storage: multer.memoryStorage(),
@@ -182,10 +185,13 @@ function formatMenuItemForList(row, { includeImages = false, enabledPizzaSizes =
     const enabled = new Set(normalizeCalzoneEnabledSizes(enabledCalzoneSizes))
     item.sizes = (item.sizes || []).filter((size) => enabled.has(size.id))
   }
-  const hasImage = rowHasStoredImage(item.image)
+
+  const storedRev = String(row.image_rev || row.imageRev || '').trim()
+  const hasImage = includeImages ? rowHasStoredImage(item.image) : Boolean(storedRev)
   const imageRev = hasImage
-    ? String(row.image_rev || menuItemImageRevision(item.image) || '')
+    ? storedRev || menuItemImageRevision(item.image) || ''
     : ''
+
   if (includeImages) {
     return { ...item, hasImage, imageRev }
   }
@@ -198,13 +204,9 @@ app.get('/menu-items', requireAdminForInactiveMenu, async (req, res) => {
     const includeInactive = req.query.all === '1'
     const includeImages = req.query.includeImages === '1'
     const settings = await loadCatalogSettings(query)
+    const columns = includeImages ? MENU_ITEM_COLUMNS : MENU_ITEM_LIST_COLUMNS
     const result = await query(
-      `SELECT ${MENU_ITEM_COLUMNS},
-              CASE
-                WHEN length(trim(COALESCE(image_base64, ''))) > 32
-                THEN left(md5(image_base64), 12)
-                ELSE ''
-              END AS image_rev
+      `SELECT ${columns}
        FROM menu_items
        ${includeInactive ? '' : 'WHERE is_active = TRUE'}
        ORDER BY id DESC`,
@@ -279,11 +281,12 @@ app.post('/menu-items', requireAdmin, async (req, res) => {
   }
 
   const { payload } = built
+  const imageRev = menuItemImageRevision(payload.image)
 
   try {
     const result = await query(
-      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, options, extras, min_order_qty, image_base64, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, options, extras, min_order_qty, image_base64, image_rev, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        RETURNING ${MENU_ITEM_COLUMNS}`,
       [
         payload.category,
@@ -297,6 +300,7 @@ app.post('/menu-items', requireAdmin, async (req, res) => {
         JSON.stringify(payload.extras || []),
         payload.minOrderQty,
         payload.image,
+        imageRev,
         payload.isActive !== false,
       ],
     )
@@ -321,6 +325,7 @@ app.put('/menu-items/:id', requireAdmin, async (req, res) => {
   }
 
   const { payload } = built
+  const imageRev = built.keepExistingImage ? null : menuItemImageRevision(payload.image)
 
   try {
     const baseParams = [
@@ -368,10 +373,11 @@ app.put('/menu-items/:id', requireAdmin, async (req, res) => {
                extras = $10,
                min_order_qty = $11,
                image_base64 = $12,
-               is_active = $13
+               image_rev = $13,
+               is_active = $14
            WHERE id = $1
            RETURNING ${MENU_ITEM_COLUMNS}`,
-          [...baseParams, payload.image, payload.isActive !== false],
+          [...baseParams, payload.image, imageRev, payload.isActive !== false],
         )
 
     if (result.rowCount === 0) {

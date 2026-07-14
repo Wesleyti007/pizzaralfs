@@ -8,7 +8,15 @@ const SCHEMA_PATCHES = [
   `ALTER TABLE catalog_settings ADD COLUMN IF NOT EXISTS pizza_enabled_sizes JSONB NOT NULL DEFAULT '["broto","media","grande"]'::jsonb`,
   `ALTER TABLE catalog_settings ADD COLUMN IF NOT EXISTS calzone_enabled_sizes JSONB NOT NULL DEFAULT '["pequeno","grande"]'::jsonb`,
   `ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS extras JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS image_rev TEXT NOT NULL DEFAULT ''`,
 ]
+
+const IMAGE_REV_BACKFILL = `
+UPDATE menu_items
+SET image_rev = left(md5(image_base64), 12)
+WHERE length(trim(COALESCE(image_base64, ''))) > 32
+  AND trim(COALESCE(image_rev, '')) = ''
+`
 
 const CASH_CLOSINGS_TABLE = `
 CREATE TABLE IF NOT EXISTS cash_closings (
@@ -27,4 +35,5 @@ export async function ensureOrderSchema() {
     await query(sql)
   }
   await query(CASH_CLOSINGS_TABLE)
+  await query(IMAGE_REV_BACKFILL)
 }

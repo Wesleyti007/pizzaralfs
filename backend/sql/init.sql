@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS menu_items (
   delivery_price NUMERIC(10,2),
   sizes JSONB NOT NULL DEFAULT '[]'::jsonb,
   image_base64 TEXT NOT NULL DEFAULT '',
+  image_rev TEXT NOT NULL DEFAULT '',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
