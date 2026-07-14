@@ -188,11 +188,20 @@ export function normalizeCategories(raw) {
         label,
         subcategories,
         minOrderQty: normalizeCategoryMinOrderQty(category?.minOrderQty),
+        isActive: category?.isActive !== false && category?.active !== false,
       }
     })
     .filter(Boolean)
 
   return categories.length > 0 ? categories : DEFAULT_CATEGORIES
+}
+
+export function isCategoryActive(category) {
+  return category?.isActive !== false && category?.active !== false
+}
+
+export function getActiveCategories(categories = []) {
+  return categories.filter((category) => isCategoryActive(category))
 }
 
 export function findCategory(categories, categoryId) {
@@ -219,10 +228,12 @@ export function getItemCategoryLabel(categories, item) {
 }
 
 export function resolveActiveCategory(categories, categoryId) {
-  if (categories.some((category) => category.id === categoryId)) {
+  const visible = getActiveCategories(categories)
+  const pool = visible.length > 0 ? visible : categories
+  if (pool.some((category) => category.id === categoryId)) {
     return categoryId
   }
-  return categories[0]?.id || 'pizzas'
+  return pool[0]?.id || 'pizzas'
 }
 
 export function resolveActiveSubcategory(categories, categoryId, subcategoryId) {
@@ -303,7 +314,9 @@ export function filterMenuItemsForAdmin(
 export function filterMenuByCatalog(menuItems, categories, categoryId, subcategoryId) {
   const activeCategory = resolveActiveCategory(categories, categoryId)
   const activeSubcategory = resolveActiveSubcategory(categories, activeCategory, subcategoryId)
-  const subs = findCategory(categories, activeCategory)?.subcategories || []
+  const category = findCategory(categories, activeCategory)
+  if (!isCategoryActive(category)) return []
+  const subs = category?.subcategories || []
 
   return menuItems.filter((item) => {
     if (item.isActive === false) return false
@@ -876,6 +889,7 @@ export function isPizzaSweetItem(item, categories = []) {
 /** Pizzas que podem entrar no seletor de vários sabores (salgada + doce). */
 export function isCombinablePizzaItem(item, categories = []) {
   if (item?.isActive === false) return false
+  if (!isCategoryActive(findCategory(categories, item?.category))) return false
   if (!itemHasSizes(item)) return false
   if (isPizzaCategory(item?.category)) return true
   return isPizzaSweetItem(item, categories)

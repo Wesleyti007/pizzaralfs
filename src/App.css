@@ -4073,11 +4073,72 @@ body.home-splash-active .brand-header {
   color: var(--brand-text-muted);
 }
 
-.category-admin-delete {
+.category-admin-actions {
   grid-column: 2;
   grid-row: 1 / span 2;
   align-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.category-admin-actions .admin-btn {
   white-space: nowrap;
+}
+
+.category-inactive-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  color: #7c2d12;
+  background: rgba(194, 65, 12, 0.12);
+}
+
+.category-accordion-item.is-disabled .category-accordion-trigger {
+  opacity: 0.78;
+}
+
+.admin-menu-category-head {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: linear-gradient(135deg, var(--brand-dark-soft) 0%, var(--brand-dark) 100%);
+}
+
+.admin-menu-category-head .category-accordion-trigger {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  background: transparent;
+}
+
+.admin-menu-category-toggle {
+  align-self: center;
+  flex-shrink: 0;
+  margin: 8px 12px 8px 0;
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  border-color: rgba(255, 248, 238, 0.45) !important;
+  color: var(--brand-cream) !important;
+  background: rgba(255, 248, 238, 0.12) !important;
+  box-shadow: none !important;
+}
+
+.admin-menu-category-toggle.admin-btn-gold {
+  color: var(--brand-dark) !important;
+  background: var(--btn-secondary-bg) !important;
+  border-color: transparent !important;
+}
+
+.admin-menu-category-toggle:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .admin-field--min-qty {
@@ -4526,13 +4587,30 @@ body.home-splash-active .brand-header {
     grid-template-columns: 1fr;
   }
 
+  .admin-menu-category-head {
+    flex-wrap: wrap;
+  }
+
+  .admin-menu-category-head .category-accordion-trigger {
+    width: 100%;
+  }
+
+  .admin-menu-category-toggle {
+    margin: 0 12px 12px;
+    width: calc(100% - 24px);
+  }
+
   .category-admin-fields {
     grid-template-columns: 1fr;
   }
 
-  .category-admin-delete {
+  .category-admin-actions {
     grid-column: 1;
     grid-row: auto;
+    width: 100%;
+  }
+
+  .category-admin-actions .admin-btn {
     width: 100%;
   }
 

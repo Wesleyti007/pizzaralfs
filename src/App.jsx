@@ -151,6 +151,8 @@ import {
   commitCategoryMinOrderInput,
   formatOptionsForInput,
   getCategorySubcategories,
+  getActiveCategories,
+  isCategoryActive,
   normalizeCategories,
   parseCategoryMinOrderInput,
   parseOptionsFromText,
@@ -3037,7 +3039,7 @@ function HomePage({
           <h3>{sectionTitle}</h3>
         </div>
         <div className="category-tabs">
-          {categories.map((category) => {
+          {getActiveCategories(categories).map((category) => {
             const isActive = category.id === activeCategory
             return (
               <Link
@@ -4881,6 +4883,16 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
     )
   }
 
+  const toggleCategoryActive = (categoryId) => {
+    setCategories((current) =>
+      current.map((category) =>
+        category.id === categoryId
+          ? { ...category, isActive: !isCategoryActive(category) }
+          : category,
+      ),
+    )
+  }
+
   const updateCategoryMinOrderQty = (categoryId, rawValue) => {
     const minOrderQty = parseCategoryMinOrderInput(rawValue)
     setCategories(
@@ -4960,7 +4972,7 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
 
     setCategories([
       ...categories,
-      { id, label, subcategories: [], minOrderQty: 1 },
+      { id, label, subcategories: [], minOrderQty: 1, isActive: true },
     ])
     setNewCategoryLabel('')
     setOpenCategoryId(id)
@@ -5138,12 +5150,13 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
           const isOpen = openCategoryId === category.id
           const subCount = getCategorySubcategories(category).length
           const categoryMin = commitCategoryMinOrderInput(category.minOrderQty)
+          const categoryEnabled = isCategoryActive(category)
 
           return (
             <article
               key={category.id}
               data-category-id={category.id}
-              className={`category-accordion-item${isOpen ? ' is-open' : ''}`}
+              className={`category-accordion-item${isOpen ? ' is-open' : ''}${categoryEnabled ? '' : ' is-disabled'}`}
             >
               <button
                 type="button"
@@ -5152,7 +5165,12 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                 aria-expanded={isOpen}
               >
                 <span className="category-accordion-trigger-text">
-                  <span className="category-accordion-label">{category.label}</span>
+                  <span className="category-accordion-label">
+                    {category.label}
+                    {!categoryEnabled ? (
+                      <span className="category-inactive-badge">Desativada</span>
+                    ) : null}
+                  </span>
                   <span className="category-accordion-meta">
                     {subCount} {subCount === 1 ? 'subcategoria' : 'subcategorias'}
                     {categoryMin > 1 ? ` · mín. ${categoryMin} un.` : ''}
@@ -5191,16 +5209,28 @@ function CategoriesAdmin({ categories, setCategories, saveCategories }) {
                   <p className="category-admin-fields-hint">
                     Pedido mínimo soma todos os itens da categoria (sabores diferentes).
                   </p>
-                  <button
-                    type="button"
-                    className="admin-btn admin-btn-danger category-admin-delete"
-                    onClick={() => confirmRemoveCategory(category)}
-                  >
-                    Excluir categoria
-                  </button>
+                  <div className="category-admin-actions">
+                    <button
+                      type="button"
+                      className={`admin-btn ${categoryEnabled ? 'admin-btn-outline' : 'admin-btn-gold'}`}
+                      onClick={() => toggleCategoryActive(category.id)}
+                    >
+                      {categoryEnabled ? 'Desativar seção' : 'Ativar seção'}
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-danger category-admin-delete"
+                      onClick={() => confirmRemoveCategory(category)}
+                    >
+                      Excluir categoria
+                    </button>
+                  </div>
                 </div>
                 <p className="category-admin-id">
                   ID: <code>{category.id}</code>
+                  {!categoryEnabled
+                    ? ' · oculta no cardápio (itens preservados)'
+                    : ''}
                 </p>
 
                 <div className="subcategory-admin-block">
@@ -5778,6 +5808,8 @@ function AdminItemsCatalog({
   openItemsSubcategoryKey,
   onToggleSubcategory,
   onToggleCategory,
+  onToggleCategoryActive,
+  togglingCategoryId,
   onEdit,
   onRemove,
   onToggleActive,
@@ -5805,7 +5837,10 @@ function AdminItemsCatalog({
     <section className="admin-items-catalog admin-tab-panel-inner">
       <header className="admin-panel-header">
         <h3>Itens cadastrados</h3>
-        <p>Busque e filtre por categoria, subcategoria ou status para achar itens no admin.</p>
+        <p>
+          Use Desativar seção no cabeçalho da categoria (ex.: Burgers) para ocultar tudo no
+          cardápio de uma vez.
+        </p>
       </header>
 
       <div className="admin-items-filters">
@@ -5827,6 +5862,7 @@ function AdminItemsCatalog({
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.label}
+                  {isCategoryActive(category) ? '' : ' (desativada)'}
                 </option>
               ))}
             </select>
@@ -5887,24 +5923,49 @@ function AdminItemsCatalog({
         {visibleGroups.map(({ category, totalCount, sections }) => {
           const isOpen = openItemsCategoryId === category.id
           const itemLabel = totalCount === 1 ? '1 item' : `${totalCount} itens`
+          const categoryEnabled = isCategoryActive(category)
+          const isTogglingCategory = togglingCategoryId === category.id
 
           return (
             <article
               key={category.id}
-              className={`category-accordion-item${isOpen ? ' is-open' : ''}`}
+              className={`category-accordion-item${isOpen ? ' is-open' : ''}${
+                categoryEnabled ? '' : ' is-disabled'
+              }`}
             >
-              <button
-                type="button"
-                className="category-accordion-trigger"
-                onClick={() => onToggleCategory(category.id)}
-                aria-expanded={isOpen}
-              >
-                <span className="category-accordion-trigger-text">
-                  <span className="category-accordion-label">{category.label}</span>
-                  <span className="category-accordion-meta">{itemLabel}</span>
-                </span>
-                <span className="category-accordion-chevron" aria-hidden="true" />
-              </button>
+              <div className="admin-menu-category-head">
+                <button
+                  type="button"
+                  className="category-accordion-trigger"
+                  onClick={() => onToggleCategory(category.id)}
+                  aria-expanded={isOpen}
+                >
+                  <span className="category-accordion-trigger-text">
+                    <span className="category-accordion-label">
+                      {category.label}
+                      {!categoryEnabled ? (
+                        <span className="category-inactive-badge">Desativada</span>
+                      ) : null}
+                    </span>
+                    <span className="category-accordion-meta">{itemLabel}</span>
+                  </span>
+                  <span className="category-accordion-chevron" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={`admin-btn admin-menu-category-toggle ${
+                    categoryEnabled ? 'admin-btn-outline' : 'admin-btn-gold'
+                  }`}
+                  disabled={isTogglingCategory || !onToggleCategoryActive}
+                  onClick={() => onToggleCategoryActive?.(category)}
+                >
+                  {isTogglingCategory
+                    ? '...'
+                    : categoryEnabled
+                      ? 'Desativar seção'
+                      : 'Ativar seção'}
+                </button>
+              </div>
 
               <div className="category-accordion-panel">
                 {totalCount === 0 ? (
@@ -6096,6 +6157,7 @@ function AdminPage({
   const [isSavingEditItem, setIsSavingEditItem] = useState(false)
   const [isProcessingImage, setIsProcessingImage] = useState(false)
   const [togglingItemId, setTogglingItemId] = useState(null)
+  const [togglingCategoryId, setTogglingCategoryId] = useState(null)
   const [itemModal, setItemModal] = useState(null)
   const [openItemsCategoryId, setOpenItemsCategoryId] = useState(null)
   const [openItemsSubcategoryKey, setOpenItemsSubcategoryKey] = useState(null)
@@ -6534,6 +6596,38 @@ function AdminPage({
     }
   }
 
+  const handleToggleCategoryActive = async (category) => {
+    if (!category?.id || togglingCategoryId) return
+    const nextActive = !isCategoryActive(category)
+    setTogglingCategoryId(category.id)
+    try {
+      const nextCategories = categories.map((entry) =>
+        entry.id === category.id ? { ...entry, isActive: nextActive } : entry,
+      )
+      setCategories(nextCategories)
+      const result = await saveCategories(prepareCategoriesForSave(nextCategories))
+      if (!result?.ok) {
+        throw new Error('Falha ao salvar categorias')
+      }
+      setItemModal({
+        variant: 'success',
+        title: nextActive ? 'Seção ativada' : 'Seção desativada',
+        description: nextActive
+          ? `"${category.label}" voltou a aparecer no cardápio.`
+          : `"${category.label}" some do cardápio do cliente. Os itens continuam no admin.`,
+      })
+    } catch (error) {
+      setCategories(categories)
+      setItemModal({
+        variant: 'error',
+        title: 'Erro',
+        description: formatApiError(error, 'Não foi possível alterar a seção.'),
+      })
+    } finally {
+      setTogglingCategoryId(null)
+    }
+  }
+
   const removeItem = async (id, itemName) => {
     try {
       await deleteMenuItem(id)
@@ -6680,6 +6774,8 @@ function AdminPage({
               openItemsSubcategoryKey={openItemsSubcategoryKey}
               onToggleSubcategory={toggleItemsSubcategoryPanel}
               onToggleCategory={toggleItemsCategoryPanel}
+              onToggleCategoryActive={handleToggleCategoryActive}
+              togglingCategoryId={togglingCategoryId}
               onEdit={startEdit}
               onRemove={removeItem}
               onToggleActive={handleToggleItemActive}

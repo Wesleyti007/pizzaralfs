@@ -2,7 +2,7 @@ import { API_BASE_URL } from './apiBaseUrl.js'
 
 export const ADMIN_TOKEN_STORAGE_KEY = 'pizza-ralfs-admin-api-token'
 export const WAITER_TOKEN_STORAGE_KEY = 'pizza-ralfs-waiter-api-token'
-export const CATALOG_CACHE_VERSION = '8'
+export const CATALOG_CACHE_VERSION = '9'
 
 function isJsonResponse(response) {
   const contentType = response.headers.get('content-type') || ''

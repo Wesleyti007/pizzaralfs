@@ -63,6 +63,7 @@ export function normalizeCategories(raw) {
         label,
         subcategories,
         minOrderQty: normalizeCategoryMinOrderQty(category?.minOrderQty),
+        isActive: category?.isActive !== false && category?.active !== false,
       }
     })
     .filter(Boolean)
