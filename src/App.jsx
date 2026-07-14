@@ -134,8 +134,19 @@ import {
   hasMenuItemImage,
   isCalzoneCategory,
   isPizzaCategory,
+  isBurgerCategory,
   itemHasSizes,
   itemHasOptions,
+  itemHasExtras,
+  EXTRA_TYPES,
+  groupExtrasByType,
+  resolveSelectedExtras,
+  sumExtrasPrices,
+  formatExtrasSummary,
+  extrasCartKey,
+  normalizeMenuItemExtrasList,
+  resolveOptionUnitPrice,
+  MAX_ADD_EXTRA_QTY,
   commitCategoryMinOrderInput,
   formatOptionsForInput,
   getCategorySubcategories,
@@ -300,13 +311,16 @@ function getCartFlavorIds(item) {
 
 function sameCartLine(left, right) {
   if ((left.sizeId || '') !== (right.sizeId || '')) return false
+  if (extrasCartKey(left.extras || left.extraIds) !== extrasCartKey(right.extras || right.extraIds)) {
+    return false
+  }
   const leftKey = multiFlavorCartKey(getCartFlavorIds(left), left.sizeId || '')
   const rightKey = multiFlavorCartKey(getCartFlavorIds(right), right.sizeId || '')
   return leftKey === rightKey
 }
 
 function cartLineKey(item) {
-  return multiFlavorCartKey(getCartFlavorIds(item), item.sizeId || '')
+  return `${multiFlavorCartKey(getCartFlavorIds(item), item.sizeId || '')}|${extrasCartKey(item.extras || item.extraIds)}`
 }
 
 function AdminSearchBar({
@@ -409,6 +423,7 @@ function buildMenuItemApiPayload(item, isActive) {
     const sizes = Array.isArray(item.sizes) ? item.sizes : []
     payload.sizes = sizes
     payload.options = []
+    payload.extras = []
     const prices = sizes.map((size) => Number(size.price)).filter((n) => Number.isFinite(n) && n > 0)
     payload.price = prices.length ? Math.min(...prices) : Number(item.price) || 0
   } else {
@@ -418,6 +433,7 @@ function buildMenuItemApiPayload(item, isActive) {
       Number.isFinite(delivery) && delivery > 0 ? delivery : null
     payload.sizes = []
     payload.options = Array.isArray(item.options) ? item.options : []
+    payload.extras = normalizeMenuItemExtrasList(item.extras)
   }
 
   return payload
@@ -1629,6 +1645,9 @@ function OrderPanel({
                   {itemHasOptions(item) ? `Sabor: ${item.sizeLabel}` : item.sizeLabel}
                 </span>
               )}
+              {Array.isArray(item.extras) && item.extras.length > 0 && !item.sizeLabel ? (
+                <span className="basket-item-size">{formatExtrasSummary(item.extras)}</span>
+              ) : null}
               <span className="basket-item-price">{formatBRL(item.price * item.qty)}</span>
             </div>
             <div className="basket-item-actions">
@@ -1939,17 +1958,28 @@ function MenuItemCard({
     [menuItem.sizes],
   )
   const isCalzone = isCalzoneCategory(menuItem.category)
+  const isBurger = isBurgerCategory(menuItem.category)
   const showFlavorPicker = isCombinablePizzaItem(menuItem, categories)
   const hasOptions = itemHasOptions(menuItem)
+  const hasExtras = itemHasExtras(menuItem)
+  const extrasGroups = useMemo(
+    () => groupExtrasByType(menuItem.extras || []),
+    [menuItem.extras],
+  )
   const [selectedSizeId, setSelectedSizeId] = useState(
     () => visibleSizes[0]?.id || menuItem.sizes?.[0]?.id || 'grande',
   )
   const [selectedOptionId, setSelectedOptionId] = useState(
     () => menuItem.options?.[0]?.id || '',
   )
+  const [selectedExtraQty, setSelectedExtraQty] = useState({})
   const [selectedFlavorIds, setSelectedFlavorIds] = useState(() => [
     normalizeItemId(menuItem.id),
   ])
+
+  useEffect(() => {
+    setSelectedExtraQty({})
+  }, [menuItem.id])
 
   useEffect(() => {
     if (!visibleSizes.some((size) => size.id === selectedSizeId)) {
@@ -1963,9 +1993,20 @@ function MenuItemCard({
     visibleSizes.find((size) => size.id === selectedSizeId) || visibleSizes[0]
   const pieceCount = getPiecesForSize(selectedSizeId, visibleSizes)
   const maxFlavors = getMaxFlavorsForSize(selectedSizeId, menuItem.category)
-  const unitPrice = hasSizes
-    ? resolveUnitPrice(menuItem, selectedSizeId, forDelivery)
-    : resolveUnitPrice(menuItem, '', forDelivery)
+  const selectedExtras = useMemo(
+    () => resolveSelectedExtras(menuItem.extras, selectedExtraQty),
+    [menuItem.extras, selectedExtraQty],
+  )
+  const extrasTotal = sumExtrasPrices(selectedExtras)
+  const selectedOption =
+    (menuItem.options || []).find((entry) => entry.id === selectedOptionId) ||
+    menuItem.options?.[0]
+  const baseUnitPrice = hasOptions
+    ? resolveOptionUnitPrice(menuItem, selectedOption?.id || selectedOptionId, forDelivery)
+    : hasSizes
+      ? resolveUnitPrice(menuItem, selectedSizeId, forDelivery)
+      : resolveUnitPrice(menuItem, '', forDelivery)
+  const unitPrice = baseUnitPrice + extrasTotal
 
   const pizzaById = useMemo(() => {
     const map = new Map()
@@ -1993,14 +2034,60 @@ function MenuItemCard({
   )
 
   const displayPrice = useMemo(() => {
-    if (selectedFlavors.length <= 1) return unitPrice
-    return computeMultiFlavorPriceForMode(
-      pizzaById,
-      selectedFlavorIds,
-      selectedSizeId,
-      forDelivery,
-    )
-  }, [selectedFlavors.length, selectedFlavorIds, pizzaById, selectedSizeId, unitPrice, forDelivery])
+    if (hasOptions) return unitPrice
+    const base =
+      selectedFlavors.length <= 1
+        ? baseUnitPrice
+        : computeMultiFlavorPriceForMode(
+            pizzaById,
+            selectedFlavorIds,
+            selectedSizeId,
+            forDelivery,
+          )
+    return base + extrasTotal
+  }, [
+    hasOptions,
+    unitPrice,
+    selectedFlavors.length,
+    selectedFlavorIds,
+    pizzaById,
+    selectedSizeId,
+    baseUnitPrice,
+    extrasTotal,
+    forDelivery,
+  ])
+
+  const toggleExtra = (extra) => {
+    const maxQty = extra.type === 'add' ? MAX_ADD_EXTRA_QTY : 1
+    setSelectedExtraQty((current) => {
+      const currentQty = Math.floor(Number(current[extra.id]) || 0)
+      if (extra.type === 'add') {
+        const nextQty = currentQty >= maxQty ? 0 : currentQty + 1
+        if (nextQty <= 0) {
+          const { [extra.id]: _removed, ...rest } = current
+          return rest
+        }
+        return { ...current, [extra.id]: nextQty }
+      }
+      if (currentQty > 0) {
+        const { [extra.id]: _removed, ...rest } = current
+        return rest
+      }
+      return { ...current, [extra.id]: 1 }
+    })
+  }
+
+  const setExtraQty = (extra, nextQty) => {
+    const maxQty = extra.type === 'add' ? MAX_ADD_EXTRA_QTY : 1
+    const qty = Math.max(0, Math.min(maxQty, Math.floor(Number(nextQty) || 0)))
+    setSelectedExtraQty((current) => {
+      if (qty <= 0) {
+        const { [extra.id]: _removed, ...rest } = current
+        return rest
+      }
+      return { ...current, [extra.id]: qty }
+    })
+  }
 
   const handleSizeChange = (sizeId) => {
     setSelectedSizeId(sizeId)
@@ -2035,36 +2122,47 @@ function MenuItemCard({
   }
 
   const handleAdd = () => {
+    const extrasSummary = formatExtrasSummary(selectedExtras)
+    const extraIds = selectedExtras.map((entry) => entry.id)
+
     if (hasOptions) {
-      const selectedOption =
+      const chosenOption =
         menuItem.options.find((entry) => entry.id === selectedOptionId) || menuItem.options[0]
-      if (!selectedOption) return
+      if (!chosenOption) return
+      const optionPrice =
+        resolveOptionUnitPrice(menuItem, chosenOption.id, forDelivery) + extrasTotal
 
       onAddToCart({
         ...menuItem,
-        price: unitPrice,
-        sizeId: selectedOption.id,
-        sizeLabel: selectedOption.label,
+        price: optionPrice,
+        sizeId: chosenOption.id,
+        sizeLabel: [chosenOption.label, extrasSummary].filter(Boolean).join(' · '),
         flavorIds: [],
         secondFlavorId: '',
-        name: menuItem.name,
+        extraIds,
+        extras: selectedExtras,
+        name: extrasSummary
+          ? `${menuItem.name} — ${chosenOption.label} (${extrasSummary})`
+          : `${menuItem.name} — ${chosenOption.label}`,
       })
       return
     }
 
-    const sizeLabel = selectedSize
+    const sizeLabelCore = selectedSize
       ? isCalzone
         ? selectedSize.label
         : `${selectedSize.label} (${selectedSize.pieces} pedaços)`
       : ''
+    const sizeLabel = [sizeLabelCore, extrasSummary].filter(Boolean).join(' · ')
     const flavorIds = normalizeFlavorIdList(selectedFlavorIds)
     const flavorItems = flavorIds.map((id) => pizzaById.get(id)).filter(Boolean)
-    const name =
+    const baseName =
       flavorItems.length > 1
-        ? buildMultiFlavorCartName(flavorItems, sizeLabel)
-        : sizeLabel
+        ? buildMultiFlavorCartName(flavorItems, sizeLabelCore)
+        : sizeLabelCore
           ? `${menuItem.name} — ${selectedSize.label}`
           : menuItem.name
+    const name = extrasSummary ? `${baseName} (${extrasSummary})` : baseName
 
     onAddToCart({
       ...menuItem,
@@ -2073,6 +2171,8 @@ function MenuItemCard({
       sizeLabel,
       flavorIds,
       secondFlavorId: flavorIds[1] || '',
+      extraIds,
+      extras: selectedExtras,
       name,
     })
   }
@@ -2121,20 +2221,34 @@ function MenuItemCard({
       {hasOptions ? (
         <>
           <div className="item-options">
-            <span className="pizza-sizes-label">Sabor</span>
-            <div className="pizza-sizes-options" role="radiogroup" aria-label="Sabor do refrigerante">
-              {menuItem.options.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selectedOptionId === option.id}
-                  className={`pizza-size-btn item-option-btn${selectedOptionId === option.id ? ' is-active' : ''}`}
-                  onClick={() => setSelectedOptionId(option.id)}
-                >
-                  <span className="pizza-size-btn-label">{option.label}</span>
-                </button>
-              ))}
+            <span className="pizza-sizes-label">
+              {isBurger ? 'Escolha' : 'Sabor'}
+            </span>
+            <div
+              className="pizza-sizes-options"
+              role="radiogroup"
+              aria-label={isBurger ? 'Sanduíche ou combo' : 'Sabor'}
+            >
+              {menuItem.options.map((option) => {
+                const optionPrice = resolveOptionUnitPrice(menuItem, option.id, forDelivery)
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selectedOptionId === option.id}
+                    className={`pizza-size-btn item-option-btn${selectedOptionId === option.id ? ' is-active' : ''}`}
+                    onClick={() => setSelectedOptionId(option.id)}
+                  >
+                    <span className="pizza-size-btn-label">{option.label}</span>
+                    {Number(option.price) > 0 ? (
+                      <span className="pizza-size-btn-price">
+                        R$ {optionPrice.toFixed(2).replace('.', ',')}
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })}
             </div>
           </div>
           <strong className="card-price card-price--selected">R$ {unitPrice.toFixed(2)}</strong>
@@ -2183,11 +2297,82 @@ function MenuItemCard({
             />
           ) : null}
         </>
-      ) : (
+      ) : hasExtras ? null : (
         <strong className="card-price">{formatPriceRangeLabel(menuItem)}</strong>
       )}
 
-      {showSizedCatalog && (
+      {hasExtras ? (
+        <div className="item-extras">
+          {extrasGroups.map((group) => (
+            <div key={group.id} className="item-extras-group">
+              <span className="pizza-sizes-label">
+                {group.labelPlural}
+                {group.id === 'add' ? ` (até ${MAX_ADD_EXTRA_QTY} cada)` : ''}
+              </span>
+              <div className="item-extras-options" role="group" aria-label={group.labelPlural}>
+                {group.items.map((extra) => {
+                  const qty = Math.floor(Number(selectedExtraQty[extra.id]) || 0)
+                  const active = qty > 0
+                  const priceLabel =
+                    Number(extra.price) > 0
+                      ? `+ R$ ${Number(extra.price).toFixed(2).replace('.', ',')}`
+                      : 'sem custo'
+                  if (extra.type === 'add') {
+                    return (
+                      <div
+                        key={extra.id}
+                        className={`item-extra-qty${active ? ' is-active' : ''}`}
+                      >
+                        <div className="item-extra-qty-copy">
+                          <span className="pizza-size-btn-label">{extra.label}</span>
+                          <span className="pizza-size-btn-price">{priceLabel}</span>
+                        </div>
+                        <div className="item-extra-qty-controls">
+                          <button
+                            type="button"
+                            className="item-extra-qty-btn"
+                            onClick={() => setExtraQty(extra, qty - 1)}
+                            disabled={qty <= 0}
+                            aria-label={`Diminuir ${extra.label}`}
+                          >
+                            −
+                          </button>
+                          <span className="item-extra-qty-value" aria-live="polite">
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            className="item-extra-qty-btn"
+                            onClick={() => setExtraQty(extra, qty + 1)}
+                            disabled={qty >= MAX_ADD_EXTRA_QTY}
+                            aria-label={`Aumentar ${extra.label}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  }
+                  return (
+                    <button
+                      key={extra.id}
+                      type="button"
+                      className={`pizza-size-btn item-extra-btn${active ? ' is-active' : ''}`}
+                      onClick={() => toggleExtra(extra)}
+                      aria-pressed={active}
+                    >
+                      <span className="pizza-size-btn-label">{extra.label}</span>
+                      <span className="pizza-size-btn-price">{priceLabel}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {(showSizedCatalog || hasOptions || hasExtras) && (
         <strong className="card-price card-price--selected">
           R$ {displayPrice.toFixed(2)}
         </strong>
@@ -2507,6 +2692,20 @@ function HomePage({
         sizeLabel: item.sizeLabel || '',
         secondFlavorId: item.secondFlavorId || '',
         flavorIds: getCartFlavorIds(item),
+        extraIds: Array.isArray(item.extras)
+          ? item.extras.map((entry) => ({ id: entry.id, qty: entry.qty || 1 }))
+          : Array.isArray(item.extraIds)
+            ? item.extraIds
+            : [],
+        extras: Array.isArray(item.extras)
+          ? item.extras.map((entry) => ({
+              id: entry.id,
+              label: entry.label,
+              type: entry.type,
+              price: entry.price,
+              qty: entry.qty || 1,
+            }))
+          : [],
         qty: item.qty,
         price: item.price,
       })),
@@ -4125,8 +4324,19 @@ const emptyItemForm = {
   sizePrices: emptySizePrices(),
   sizeDeliveryPrices: emptySizePrices(),
   optionsText: '',
+  extras: [],
   image: '',
   isActive: true,
+}
+
+function emptyExtraDraft(type = 'sauce') {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: '',
+    label: '',
+    type,
+    price: '',
+  }
 }
 
 function buildItemFormFromMenuItem(item, catalogSizeSettings = null) {
@@ -4145,9 +4355,104 @@ function buildItemFormFromMenuItem(item, catalogSizeSettings = null) {
       catalogSizeSettings: settings,
     }),
     optionsText: formatOptionsForInput(item.options),
+    extras: normalizeMenuItemExtrasList(item.extras).map((extra) => ({
+      key: extra.id,
+      id: extra.id,
+      label: extra.label,
+      type: extra.type,
+      price: formatPriceForInput(extra.price),
+    })),
     image: item.image || '',
     isActive: item.isActive !== false,
   }
+}
+
+function AdminExtrasEditor({ extras = [], onChange }) {
+  const updateRow = (key, patch) => {
+    onChange(
+      extras.map((row) => (row.key === key || row.id === key ? { ...row, ...patch } : row)),
+    )
+  }
+
+  const removeRow = (key) => {
+    onChange(extras.filter((row) => row.key !== key && row.id !== key))
+  }
+
+  const addRow = (type = 'sauce') => {
+    onChange([...extras, emptyExtraDraft(type)])
+  }
+
+  return (
+    <div className="admin-extras-editor field-full">
+      <span className="field-label">Adicionais</span>
+      {extras.length > 0 ? (
+        <div className="admin-extras-list">
+          {extras.map((row) => {
+            const rowKey = row.key || row.id
+            return (
+              <div key={rowKey} className="admin-extras-row">
+                <select
+                  value={row.type || 'sauce'}
+                  onChange={(event) => updateRow(rowKey, { type: event.target.value })}
+                  aria-label="Tipo do adicional"
+                >
+                  {EXTRA_TYPES.map((type) => (
+                    <option key={type.id} value={type.id}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={row.label}
+                  onChange={(event) => updateRow(rowKey, { label: event.target.value })}
+                  placeholder="Ex.: Molho verde"
+                  aria-label="Nome do adicional"
+                />
+                <div className="price-input-wrap">
+                  <span className="price-prefix" aria-hidden="true">
+                    R$
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={row.price}
+                    onChange={(event) =>
+                      updateRow(rowKey, { price: applyPriceMask(event.target.value) })
+                    }
+                    placeholder="0,00"
+                    aria-label="Preço do adicional"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-outline"
+                  onClick={() => removeRow(rowKey)}
+                >
+                  Remover
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+      <div className="admin-extras-actions">
+        <button type="button" className="admin-btn admin-btn-outline" onClick={() => addRow('sauce')}>
+          + Molho
+        </button>
+        <button type="button" className="admin-btn admin-btn-outline" onClick={() => addRow('add')}>
+          + Ingrediente
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn-outline"
+          onClick={() => addRow('remove')}
+        >
+          + Remoção
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function AdminItemFormFields({
@@ -4160,11 +4465,14 @@ function AdminItemFormFields({
   onSizePriceChange,
   onSizeDeliveryPriceChange,
   onDeliveryPriceChange,
+  onExtrasChange,
   onImageUpload,
 }) {
   const settings = getCatalogSizeSettings(catalogSizeSettings || DEFAULT_DELIVERY_SETTINGS)
   const sizeTemplates = sizeTemplatesForCategory(form.category, settings)
   const showSizedPrices = sizeTemplates.length > 0
+  const showExtrasEditor =
+    !isPizzaCategory(form.category) && !isCalzoneCategory(form.category)
 
   return (
     <>
@@ -4300,22 +4608,33 @@ function AdminItemFormFields({
             <small className="field-hint">Vazio = mesmo preço do salão.</small>
           </label>
           <label className="field-full">
-            <span className="field-label">Sabores / opções (opcional)</span>
+            <span className="field-label">
+              {isBurgerCategory(form.category) ? 'Opções com preço' : 'Sabores / opções (opcional)'}
+            </span>
             <textarea
               name="optionsText"
               value={form.optionsText}
               onChange={onChange}
-              placeholder={'Um sabor por linha, ex.:\nCoca-Cola\nGuaraná\nFanta Laranja'}
+              placeholder={
+                isBurgerCategory(form.category)
+                  ? 'Só o sanduíche = 28,00\nCombo (batata + refri lata) = 38,00'
+                  : 'Um sabor por linha, ex.:\nCoca-Cola\nGuaraná\nFanta Laranja'
+              }
               rows={5}
               className="admin-options-textarea"
             />
-            <small className="field-hint">
-              Se preencher, o cliente escolhe uma opção antes de adicionar (ex.: sabores de
-              refrigerante).
-            </small>
+            {!isBurgerCategory(form.category) ? (
+              <small className="field-hint">
+                Se preencher, o cliente escolhe uma opção antes de adicionar (ex.: sabores de
+                refrigerante). Com preço: Nome = 12,00
+              </small>
+            ) : null}
           </label>
         </div>
       )}
+      {showExtrasEditor ? (
+        <AdminExtrasEditor extras={form.extras || []} onChange={onExtrasChange} />
+      ) : null}
       <label className="admin-active-toggle field-full">
         <input type="checkbox" name="isActive" checked={form.isActive !== false} onChange={onChange} />
         <span>Item ativo no cardápio</span>
@@ -4353,6 +4672,7 @@ function AdminEditItemModal({
   onSizePriceChange,
   onSizeDeliveryPriceChange,
   onDeliveryPriceChange,
+  onExtrasChange,
   onImageUpload,
 }) {
   useEffect(() => {
@@ -4406,6 +4726,7 @@ function AdminEditItemModal({
             onSizePriceChange={onSizePriceChange}
             onSizeDeliveryPriceChange={onSizeDeliveryPriceChange}
             onDeliveryPriceChange={onDeliveryPriceChange}
+            onExtrasChange={onExtrasChange}
             onImageUpload={onImageUpload}
           />
           {shouldShowAdminMenuPreview(form.image, previewItem) && (
@@ -4421,7 +4742,7 @@ function AdminEditItemModal({
             </button>
             <button
               type="button"
-              className="cancel-btn admin-btn admin-btn-ghost"
+              className="admin-btn admin-btn-ghost"
               onClick={onClose}
               disabled={isSaving}
             >
@@ -5417,10 +5738,14 @@ function AdminMenuItemRow({ item, onEdit, onRemove, onToggleActive, isTogglingAc
         >
           {isTogglingActive ? '...' : isActive ? 'Desativar' : 'Ativar'}
         </button>
-        <button type="button" className="edit-btn" onClick={() => onEdit(item)}>
+        <button type="button" className="admin-btn admin-btn-outline" onClick={() => onEdit(item)}>
           Editar
         </button>
-        <button type="button" onClick={() => onRemove(item.id, item.name)}>
+        <button
+          type="button"
+          className="admin-btn admin-btn-danger"
+          onClick={() => onRemove(item.id, item.name)}
+        >
           Remover
         </button>
       </div>
@@ -5672,10 +5997,18 @@ function AdminItemsCatalog({
                       <AdminItemPricing item={item} />
                     </div>
                     <div className="admin-item-actions">
-                      <button type="button" className="edit-btn" onClick={() => onEdit(item)}>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-outline"
+                        onClick={() => onEdit(item)}
+                      >
                         Editar
                       </button>
-                      <button type="button" onClick={() => onRemove(item.id, item.name)}>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-danger"
+                        onClick={() => onRemove(item.id, item.name)}
+                      >
                         Remover
                       </button>
                     </div>
@@ -5721,7 +6054,11 @@ function AdminTablesSection({ tables, tableNumber, setTableNumber, onAddTable, o
           tables.map((table) => (
             <article key={table} className="table-item">
               <span>Mesa #{table}</span>
-              <button type="button" onClick={() => onRemoveTable(table)}>
+              <button
+                type="button"
+                className="admin-btn admin-btn-danger"
+                onClick={() => onRemoveTable(table)}
+              >
                 Remover
               </button>
             </article>
@@ -5872,10 +6209,16 @@ function AdminPage({
             isPizzaCategory(value) || isCalzoneCategory(value) ? '' : current.price,
           sizePrices: emptySizePrices(value, catalogSizeSettings),
           sizeDeliveryPrices: emptySizePrices(value, catalogSizeSettings),
+          extras:
+            isPizzaCategory(value) || isCalzoneCategory(value) ? [] : current.extras || [],
         }
       }
       return { ...current, [name]: value }
     })
+  }
+
+  const makeExtrasChangeHandler = (setFormState) => (extras) => {
+    setFormState((current) => ({ ...current, extras }))
   }
 
   const makeSizePriceChangeHandler = (setFormState) => (sizeId, value) => {
@@ -6032,18 +6375,40 @@ function AdminPage({
           ...basePayload,
           sizes,
           options: [],
+          extras: [],
           price: Math.min(...sizes.map((size) => size.price)),
         },
       }
     }
 
+    const options = parseOptionsFromText(form.optionsText)
+    const pricedOptions = options.filter((entry) => Number(entry.price) > 0)
     const parsedPrice = parsePriceInput(form.price)
-    if (Number.isNaN(parsedPrice) || parsedPrice <= 0) {
+    const priceFromOptions =
+      pricedOptions.length > 0 ? Math.min(...pricedOptions.map((entry) => Number(entry.price))) : null
+
+    if (isBurgerCategory(form.category) && options.length === 0) {
+      return {
+        error: {
+          variant: 'error',
+          title: 'Opções obrigatórias',
+          description:
+            'Informe ao menos: Só o sanduíche = preço e Combo (batata + refri lata) = preço.',
+        },
+      }
+    }
+
+    if (
+      (Number.isNaN(parsedPrice) || parsedPrice <= 0) &&
+      !(Number.isFinite(priceFromOptions) && priceFromOptions > 0)
+    ) {
       return {
         error: {
           variant: 'error',
           title: 'Preço inválido',
-          description: 'Use um valor válido (ex.: 49,90).',
+          description: isBurgerCategory(form.category)
+            ? 'Informe o preço nas opções (ex.: Só o sanduíche = 28,00).'
+            : 'Use um valor válido (ex.: 49,90).',
         },
       }
     }
@@ -6059,10 +6424,21 @@ function AdminPage({
     return {
       payload: {
         ...basePayload,
-        price: parsedPrice,
+        price:
+          Number.isFinite(priceFromOptions) && priceFromOptions > 0
+            ? priceFromOptions
+            : parsedPrice,
         deliveryPrice,
         sizes: [],
-        options: parseOptionsFromText(form.optionsText),
+        options,
+        extras: normalizeMenuItemExtrasList(
+          (form.extras || []).map((row) => ({
+            id: row.id,
+            label: row.label,
+            type: row.type,
+            price: parsePriceInput(row.price) || 0,
+          })),
+        ),
       },
     }
   }
@@ -6271,6 +6647,7 @@ function AdminPage({
                 onSizePriceChange={makeSizePriceChangeHandler(setNewItemForm)}
                 onSizeDeliveryPriceChange={makeSizeDeliveryPriceChangeHandler(setNewItemForm)}
                 onDeliveryPriceChange={makeDeliveryPriceChangeHandler(setNewItemForm)}
+                onExtrasChange={makeExtrasChangeHandler(setNewItemForm)}
                 onImageUpload={makeImageUploadHandler(setNewItemForm)}
               />
               <div className="admin-form-actions">
@@ -6356,6 +6733,7 @@ function AdminPage({
         onSizePriceChange={makeSizePriceChangeHandler(setEditForm)}
         onSizeDeliveryPriceChange={makeSizeDeliveryPriceChangeHandler(setEditForm)}
         onDeliveryPriceChange={makeDeliveryPriceChangeHandler(setEditForm)}
+        onExtrasChange={makeExtrasChangeHandler(setEditForm)}
         onImageUpload={makeImageUploadHandler(setEditForm)}
       />
 

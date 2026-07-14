@@ -7,8 +7,13 @@ import {
   pizzaSizeLabel,
   calzoneSizeLabel,
 } from './menuSizes.js'
+import {
+  formatExtrasSummary,
+  resolveSelectedExtras,
+  sumExtrasPrices,
+} from './menuExtras.js'
 
-const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options,
+const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options, extras,
   min_order_qty, image_base64 AS image, is_active`
 
 function normalizeFlavorIdList(raw) {
@@ -25,6 +30,22 @@ function normalizeFlavorIdList(raw) {
 }
 
 function getSizePrice(menuItem, sizeId, forDelivery) {
+  const optionId = String(sizeId || '').trim()
+  if (optionId && Array.isArray(menuItem.options) && menuItem.options.length) {
+    const option = menuItem.options.find((entry) => entry.id === optionId)
+    if (option) {
+      const optionPrice = Number(option.price)
+      if (Number.isFinite(optionPrice) && optionPrice > 0) {
+        return optionPrice
+      }
+      const deliveryPrice = Number(menuItem.deliveryPrice)
+      if (forDelivery && Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
+        return deliveryPrice
+      }
+      return Number(menuItem.price) || 0
+    }
+  }
+
   if (!sizeId || !Array.isArray(menuItem.sizes) || !menuItem.sizes.length) {
     const deliveryPrice = Number(menuItem.deliveryPrice)
     if (forDelivery && Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
@@ -87,7 +108,15 @@ function computeLineUnitPrice(menuById, line, forDelivery, catalogSettings) {
     return { error: `Item indisponivel: ${line.name || primaryId}` }
   }
 
-  return { unitPrice: Math.max(...prices.filter((value) => typeof value === 'number')) }
+  const baseUnit = Math.max(...prices.filter((value) => typeof value === 'number'))
+  const menuItem = menuById.get(primaryId)
+  const selectedExtras = resolveSelectedExtras(menuItem?.extras, line.extraIds || line.extras)
+  const extrasTotal = sumExtrasPrices(selectedExtras)
+
+  return {
+    unitPrice: Math.round((baseUnit + extrasTotal) * 100) / 100,
+    selectedExtras,
+  }
 }
 
 export async function priceOrderLinesFromDb(
@@ -145,15 +174,29 @@ export async function priceOrderLinesFromDb(
     const unitPrice = Math.round(priced.unitPrice * 100) / 100
     subtotal += unitPrice * qty
 
+    const extrasSummary = formatExtrasSummary(priced.selectedExtras || [])
+    const baseName = String(line.name || menuItem.name).trim() || menuItem.name
+    const nameWithExtras =
+      extrasSummary && !baseName.includes(extrasSummary)
+        ? `${baseName} (${extrasSummary})`
+        : baseName
+
+    const sizeLabelBase = String(line.sizeLabel || '').trim()
+    const sizeLabel =
+      extrasSummary && !sizeLabelBase.includes(extrasSummary)
+        ? [sizeLabelBase, extrasSummary].filter(Boolean).join(' · ')
+        : sizeLabelBase
+
     pricedLines.push({
       id: primaryId,
-      name: String(line.name || menuItem.name).trim() || menuItem.name,
+      name: nameWithExtras,
       category: String(line.category || menuItem.category).trim() || menuItem.category,
       subcategory: String(line.subcategory || menuItem.subcategory || '').trim(),
       qty,
       unitPrice,
       sizeId: String(line.sizeId || '').trim(),
-      sizeLabel: String(line.sizeLabel || '').trim(),
+      sizeLabel,
+      extraIds: (priced.selectedExtras || []).map((entry) => entry.id),
     })
   }
 

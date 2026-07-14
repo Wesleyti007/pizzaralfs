@@ -104,6 +104,7 @@ export const DEFAULT_CATEGORIES = [
     ],
   },
   { id: 'esfirras', label: 'Esfirras', subcategories: [] },
+  { id: 'hamburgueres', label: 'Burgers', subcategories: [] },
   { id: 'coxinhas', label: 'Coxinhas', subcategories: [] },
   { id: 'bebidas', label: 'Bebidas', subcategories: [] },
   { id: 'sobremesas', label: 'Sobremesas', subcategories: [] },
@@ -525,6 +526,11 @@ export function isCalzoneCategory(categoryId) {
   return String(categoryId || '').trim().toLowerCase() === 'calzone'
 }
 
+export function isBurgerCategory(categoryId) {
+  const id = String(categoryId || '').trim().toLowerCase()
+  return id === 'hamburgueres' || id === 'burgers' || id === 'hamburguer'
+}
+
 export function isItemWithSizesCategory(categoryId) {
   return isPizzaCategory(categoryId) || isCalzoneCategory(categoryId)
 }
@@ -603,7 +609,10 @@ export function normalizeMenuItemOptionsList(raw) {
     try {
       list = JSON.parse(list)
     } catch {
-      list = []
+      list = String(list)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
     }
   }
   if (!Array.isArray(list)) return []
@@ -611,12 +620,34 @@ export function normalizeMenuItemOptionsList(raw) {
   const options = []
   const seen = new Set()
   for (const [index, entry] of list.entries()) {
-    const label = String(entry?.label ?? entry ?? '').trim()
+    let label = ''
+    let price = 0
+    let id = ''
+
+    if (typeof entry === 'string') {
+      const match = entry.match(/^(.+?)\s*(?:=|\|)\s*([\d.,]+)\s*$/)
+      if (match) {
+        label = match[1].trim()
+        price = Number(String(match[2]).replace(/\./g, '').replace(',', '.'))
+      } else {
+        label = entry.trim()
+      }
+    } else if (entry && typeof entry === 'object') {
+      label = String(entry.label ?? '').trim()
+      id = String(entry.id ?? '').trim()
+      const parsed = Number(entry.price)
+      price = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+    }
+
     if (!label) continue
-    let id = String(entry?.id ?? '').trim() || slugifyOptionId(label, index)
-    if (seen.has(id)) id = `${id}-${index + 1}`
-    seen.add(id)
-    options.push({ id, label })
+    let optionId = id || slugifyOptionId(label, index)
+    if (seen.has(optionId)) optionId = `${optionId}-${index + 1}`
+    seen.add(optionId)
+    const option = { id: optionId, label }
+    if (Number.isFinite(price) && price > 0) {
+      option.price = Math.round(price * 100) / 100
+    }
+    options.push(option)
   }
   return options
 }
@@ -630,20 +661,200 @@ export function itemHasOptions(item) {
   return !itemHasSizes(item) && Array.isArray(item?.options) && item.options.length > 0
 }
 
+export const EXTRA_TYPES = [
+  { id: 'sauce', label: 'Molho extra', labelPlural: 'Molhos extras' },
+  { id: 'add', label: 'Adicionar', labelPlural: 'Adicionar ingredientes' },
+  { id: 'remove', label: 'Remover', labelPlural: 'Remover ingredientes' },
+]
+
+const EXTRA_TYPE_IDS = EXTRA_TYPES.map((entry) => entry.id)
+
+export function normalizeExtraType(raw) {
+  const value = String(raw || '').trim().toLowerCase()
+  if (EXTRA_TYPE_IDS.includes(value)) return value
+  if (value === 'molho') return 'sauce'
+  if (value === 'adicionar' || value === 'extra') return 'add'
+  if (value === 'remover' || value === 'sem') return 'remove'
+  return 'add'
+}
+
+export function extraTypeLabel(typeId, { plural = false } = {}) {
+  const entry = EXTRA_TYPES.find((item) => item.id === typeId)
+  if (!entry) return plural ? 'Adicionais' : 'Adicional'
+  return plural ? entry.labelPlural : entry.label
+}
+
+export function normalizeMenuItemExtrasList(raw) {
+  let list = raw
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      list = []
+    }
+  }
+  if (!Array.isArray(list)) return []
+
+  const extras = []
+  const seen = new Set()
+  for (const [index, entry] of list.entries()) {
+    const label = String(entry?.label ?? '').trim()
+    if (!label) continue
+    const type = normalizeExtraType(entry?.type)
+    let id = String(entry?.id ?? '').trim() || slugify(`${label}-${type}`) || `extra-${index + 1}`
+    if (seen.has(id)) id = `${id}-${index + 1}`
+    seen.add(id)
+    const price = Number(entry?.price)
+    extras.push({
+      id,
+      label,
+      type,
+      price: Number.isFinite(price) && price >= 0 ? Math.round(price * 100) / 100 : 0,
+    })
+  }
+  return extras
+}
+
+export function itemHasExtras(item) {
+  return !itemHasSizes(item) && Array.isArray(item?.extras) && item.extras.length > 0
+}
+
+export const MAX_ADD_EXTRA_QTY = 3
+
+export function groupExtrasByType(extras = []) {
+  const groups = EXTRA_TYPES.map((type) => ({
+    ...type,
+    items: extras.filter((entry) => entry.type === type.id),
+  })).filter((group) => group.items.length > 0)
+  return groups
+}
+
+export function sumExtrasPrices(extras = []) {
+  return extras.reduce((total, entry) => {
+    const price = Number(entry?.price)
+    const qty = Math.max(1, Math.floor(Number(entry?.qty) || 1))
+    return total + (Number.isFinite(price) && price > 0 ? price * qty : 0)
+  }, 0)
+}
+
+export function formatExtrasSummary(extras = []) {
+  if (!extras.length) return ''
+  return extras
+    .map((entry) => {
+      const label = String(entry?.label || '').trim()
+      if (!label) return ''
+      const qty = Math.max(1, Math.floor(Number(entry?.qty) || 1))
+      if (entry.type === 'remove') {
+        const base = /^sem\s+/i.test(label) ? label : `Sem ${label}`
+        return base
+      }
+      if (entry.type === 'sauce') {
+        return qty > 1 ? `Molho: ${label} x${qty}` : `Molho: ${label}`
+      }
+      return qty > 1 ? `+ ${label} x${qty}` : `+ ${label}`
+    })
+    .filter(Boolean)
+    .join(', ')
+}
+
+export function resolveSelectedExtras(menuExtras, selectedQtyById) {
+  const byId = new Map((menuExtras || []).map((entry) => [entry.id, entry]))
+  const selected = []
+
+  if (Array.isArray(selectedQtyById)) {
+    const seen = new Set()
+    for (const entry of selectedQtyById) {
+      if (entry && typeof entry === 'object' && entry.id) {
+        const id = String(entry.id).trim()
+        const extra = byId.get(id)
+        if (!extra) continue
+        const qty = Math.max(1, Math.floor(Number(entry.qty) || 1))
+        const maxQty = extra.type === 'add' ? MAX_ADD_EXTRA_QTY : 1
+        selected.push({ ...extra, qty: Math.min(maxQty, qty) })
+        continue
+      }
+      const id = String(entry || '').trim()
+      if (!id || seen.has(id)) continue
+      const extra = byId.get(id)
+      if (!extra) continue
+      seen.add(id)
+      selected.push({ ...extra, qty: 1 })
+    }
+    return selected
+  }
+
+  const qtyMap = selectedQtyById && typeof selectedQtyById === 'object' ? selectedQtyById : {}
+  for (const [rawId, rawQty] of Object.entries(qtyMap)) {
+    const id = String(rawId || '').trim()
+    const qty = Math.floor(Number(rawQty) || 0)
+    if (!id || qty < 1) continue
+    const extra = byId.get(id)
+    if (!extra) continue
+    const maxQty = extra.type === 'add' ? MAX_ADD_EXTRA_QTY : 1
+    selected.push({ ...extra, qty: Math.min(maxQty, qty) })
+  }
+  return selected.sort((a, b) => String(a.id).localeCompare(String(b.id)))
+}
+
+export function extrasCartKey(selectedExtrasOrIds = []) {
+  if (Array.isArray(selectedExtrasOrIds) && selectedExtrasOrIds[0]?.id) {
+    return selectedExtrasOrIds
+      .map((entry) => `${entry.id}:${Math.max(1, Math.floor(Number(entry.qty) || 1))}`)
+      .sort()
+      .join(',')
+  }
+  return [...(selectedExtrasOrIds || [])]
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .sort()
+    .join(',')
+}
+
 export function parseOptionsFromText(text) {
   const lines = String(text || '').split(/\r?\n/)
   return normalizeMenuItemOptionsList(lines)
 }
 
 export function formatOptionsForInput(options) {
-  return (options || []).map((entry) => entry.label).join('\n')
+  return (options || [])
+    .map((entry) => {
+      const price = Number(entry.price)
+      if (Number.isFinite(price) && price > 0) {
+        return `${entry.label} = ${String(price.toFixed(2)).replace('.', ',')}`
+      }
+      return entry.label
+    })
+    .join('\n')
+}
+
+export function resolveOptionUnitPrice(menuItem, optionId, forDelivery = false) {
+  const option = (menuItem?.options || []).find((entry) => entry.id === optionId)
+  if (option) {
+    const optionPrice = Number(option.price)
+    if (Number.isFinite(optionPrice) && optionPrice > 0) {
+      return optionPrice
+    }
+  }
+  return resolveUnitPriceFallback(menuItem, forDelivery)
+}
+
+function resolveUnitPriceFallback(menuItem, forDelivery) {
+  const deliveryPrice = Number(menuItem?.deliveryPrice)
+  if (forDelivery && Number.isFinite(deliveryPrice) && deliveryPrice > 0) {
+    return deliveryPrice
+  }
+  return Number(menuItem?.price) || 0
 }
 
 export function normalizeMenuItemOptions(item) {
-  if (isPizzaCategory(item.category)) {
-    return { ...item, options: [] }
+  if (isPizzaCategory(item.category) || isCalzoneCategory(item.category)) {
+    return { ...item, options: [], extras: [] }
   }
-  return { ...item, options: normalizeMenuItemOptionsList(item.options) }
+  return {
+    ...item,
+    options: normalizeMenuItemOptionsList(item.options),
+    extras: normalizeMenuItemExtrasList(item.extras),
+  }
 }
 
 /** Subcategorias tratadas como pizza doce nos combos de sabores. */

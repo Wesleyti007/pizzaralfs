@@ -1,3 +1,5 @@
+import { normalizeMenuItemExtrasList } from './menuExtras.js'
+
 export const PIZZA_SIZE_TEMPLATES = [
   { id: 'broto', label: 'Broto', pieces: 4 },
   { id: 'media', label: 'Media', pieces: 6 },
@@ -180,7 +182,10 @@ export function normalizeMenuItemOptionsList(raw) {
     try {
       list = JSON.parse(list)
     } catch {
-      list = []
+      list = String(list)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
     }
   }
   if (!Array.isArray(list)) return []
@@ -188,12 +193,34 @@ export function normalizeMenuItemOptionsList(raw) {
   const options = []
   const seen = new Set()
   for (const [index, entry] of list.entries()) {
-    const label = String(entry?.label ?? entry ?? '').trim()
+    let label = ''
+    let price = 0
+    let id = ''
+
+    if (typeof entry === 'string') {
+      const match = entry.match(/^(.+?)\s*(?:=|\|)\s*([\d.,]+)\s*$/)
+      if (match) {
+        label = match[1].trim()
+        price = Number(String(match[2]).replace(/\./g, '').replace(',', '.'))
+      } else {
+        label = entry.trim()
+      }
+    } else if (entry && typeof entry === 'object') {
+      label = String(entry.label ?? entry ?? '').trim()
+      id = String(entry.id ?? '').trim()
+      const parsed = Number(entry.price)
+      price = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+    }
+
     if (!label) continue
-    let id = String(entry?.id ?? '').trim() || slugifyOptionId(label, index)
-    if (seen.has(id)) id = `${id}-${index + 1}`
-    seen.add(id)
-    options.push({ id, label })
+    let optionId = id || slugifyOptionId(label, index)
+    if (seen.has(optionId)) optionId = `${optionId}-${index + 1}`
+    seen.add(optionId)
+    const option = { id: optionId, label }
+    if (Number.isFinite(price) && price > 0) {
+      option.price = Math.round(price * 100) / 100
+    }
+    options.push(option)
   }
   return options
 }
@@ -229,6 +256,10 @@ export function normalizeMenuItemRow(row) {
     isPizzaCategory(category) || isCalzoneCategory(category)
       ? []
       : normalizeMenuItemOptionsList(row.options)
+  const extras =
+    isPizzaCategory(category) || isCalzoneCategory(category)
+      ? []
+      : normalizeMenuItemExtrasList(row.extras)
   const item = {
     id: row.id,
     category,
@@ -239,6 +270,7 @@ export function normalizeMenuItemRow(row) {
     image: row.image || '',
     sizes,
     options,
+    extras,
     minOrderQty: normalizeMinOrderQty(row.min_order_qty ?? row.minOrderQty),
     isActive: row.is_active !== false && row.isActive !== false,
   }
@@ -279,6 +311,7 @@ export function buildMenuItemPayload(body, { enabledPizzaSizes = null, enabledCa
         image,
         sizes,
         options: [],
+        extras: [],
         deliveryPrice: null,
         minOrderQty,
         isActive,
@@ -309,6 +342,7 @@ export function buildMenuItemPayload(body, { enabledPizzaSizes = null, enabledCa
         image,
         sizes,
         options: [],
+        extras: [],
         deliveryPrice: null,
         minOrderQty,
         isActive,
@@ -317,6 +351,7 @@ export function buildMenuItemPayload(body, { enabledPizzaSizes = null, enabledCa
   }
 
   const options = normalizeMenuItemOptionsList(body.options)
+  const extras = normalizeMenuItemExtrasList(body.extras)
 
   const price = Number(body.price)
   if (!name || Number.isNaN(price) || price <= 0) {
@@ -342,6 +377,7 @@ export function buildMenuItemPayload(body, { enabledPizzaSizes = null, enabledCa
       image,
       sizes: [],
       options,
+      extras,
       deliveryPrice,
       minOrderQty,
       isActive,

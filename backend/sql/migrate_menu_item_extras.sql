@@ -1,0 +1,2 @@
+ALTER TABLE menu_items
+  ADD COLUMN IF NOT EXISTS extras JSONB NOT NULL DEFAULT '[]'::jsonb;

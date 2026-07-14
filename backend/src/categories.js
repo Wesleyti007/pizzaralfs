@@ -19,6 +19,7 @@ export const DEFAULT_CATEGORIES = [
     ],
   },
   { id: 'esfirras', label: 'Esfirras', subcategories: [] },
+  { id: 'hamburgueres', label: 'Burgers', subcategories: [] },
   { id: 'coxinhas', label: 'Coxinhas', subcategories: [] },
   { id: 'bebidas', label: 'Bebidas', subcategories: [] },
   { id: 'sobremesas', label: 'Sobremesas', subcategories: [] },

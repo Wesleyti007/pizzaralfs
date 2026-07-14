@@ -31,7 +31,7 @@ import { CATALOG_CLIENT_VERSION } from './catalogVersion.js'
 import { priceOrderLinesFromDb } from './orderPricing.js'
 import { orderCreateRateLimit } from './rateLimit.js'
 
-const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options,
+const MENU_ITEM_COLUMNS = `id, category, subcategory, name, description, price, delivery_price, sizes, options, extras,
   min_order_qty, image_base64 AS image, is_active`
 
 const imageUpload = multer({
@@ -281,8 +281,8 @@ app.post('/menu-items', requireAdmin, async (req, res) => {
 
   try {
     const result = await query(
-      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, options, min_order_qty, image_base64, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO menu_items (category, subcategory, name, description, price, delivery_price, sizes, options, extras, min_order_qty, image_base64, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING ${MENU_ITEM_COLUMNS}`,
       [
         payload.category,
@@ -293,6 +293,7 @@ app.post('/menu-items', requireAdmin, async (req, res) => {
         payload.deliveryPrice,
         JSON.stringify(payload.sizes),
         JSON.stringify(payload.options || []),
+        JSON.stringify(payload.extras || []),
         payload.minOrderQty,
         payload.image,
         payload.isActive !== false,
@@ -331,6 +332,7 @@ app.put('/menu-items/:id', requireAdmin, async (req, res) => {
       payload.deliveryPrice,
       JSON.stringify(payload.sizes),
       JSON.stringify(payload.options || []),
+      JSON.stringify(payload.extras || []),
       payload.minOrderQty,
     ]
 
@@ -345,8 +347,9 @@ app.put('/menu-items/:id', requireAdmin, async (req, res) => {
                delivery_price = $7,
                sizes = $8,
                options = $9,
-               min_order_qty = $10,
-               is_active = $11
+               extras = $10,
+               min_order_qty = $11,
+               is_active = $12
            WHERE id = $1
            RETURNING ${MENU_ITEM_COLUMNS}`,
           [...baseParams, payload.isActive !== false],
@@ -361,9 +364,10 @@ app.put('/menu-items/:id', requireAdmin, async (req, res) => {
                delivery_price = $7,
                sizes = $8,
                options = $9,
-               min_order_qty = $10,
-               image_base64 = $11,
-               is_active = $12
+               extras = $10,
+               min_order_qty = $11,
+               image_base64 = $12,
+               is_active = $13
            WHERE id = $1
            RETURNING ${MENU_ITEM_COLUMNS}`,
           [...baseParams, payload.image, payload.isActive !== false],
