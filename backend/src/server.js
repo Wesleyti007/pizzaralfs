@@ -26,6 +26,7 @@ import {
   listCashClosings,
   resolveCashClosePeriodFrom,
 } from './cashClosing.js'
+import { buildSalesInsights } from './reportInsights.js'
 import { postAdminLogin, postWaiterLogin, requireAdmin, requireWaiter } from './adminAuth.js'
 import { CATALOG_CLIENT_VERSION } from './catalogVersion.js'
 import { priceOrderLinesFromDb } from './orderPricing.js'
@@ -793,7 +794,7 @@ app.post('/orders/cash-close', requireAdmin, async (req, res) => {
 
 app.get('/orders/cash-closings', requireAdmin, async (req, res) => {
   try {
-    const closings = await listCashClosings(query, req.query.limit)
+    const closings = await listCashClosings(query, req.query.limit, req.query.offset)
     return res.json(closings)
   } catch (error) {
     return res.status(500).json({ message: 'Erro ao listar fechamentos', detail: error.message })
@@ -826,11 +827,13 @@ app.get('/orders/report', requireAdmin, async (req, res) => {
     const soldOrders = orders.filter((order) => order.status !== 'cancelled')
     const cancelledOrders = orders.filter((order) => order.status === 'cancelled')
     const summary = buildOrdersSummary(orders)
+    const insights = await buildSalesInsights(query, orders)
 
     return res.json({
       from,
       to,
       summary,
+      insights,
       orders,
       soldOrders,
       cancelledOrders,

@@ -57,6 +57,7 @@ import {
   printCashCloseDetailA4,
 } from './cashClosing.js'
 import { OrdersSummaryCards } from './OrdersSummaryCards.jsx'
+import { ReportCharts } from './ReportCharts.jsx'
 import {
   adminMenuPreviewSrc,
   menuItemImageSrc,
@@ -3336,6 +3337,7 @@ function ReportsPage() {
         from: dateInputFromTimestamp(preview.periodFrom),
         to: dateInputFromTimestamp(preview.periodTo),
         summary: preview.summary,
+        insights: preview.insights,
         orders: preview.orders ?? [],
         soldOrders: preview.soldOrders ?? [],
         cancelledOrders: preview.cancelledOrders ?? [],
@@ -3355,7 +3357,7 @@ function ReportsPage() {
     setError('')
     try {
       const closings = await fetchCashClosings(API_BASE_URL, 1)
-      const last = Array.isArray(closings) ? closings[0] : null
+      const last = closings.items?.[0] ?? null
       if (!last) {
         setError('Nenhum fechamento de caixa registrado ainda.')
         setReport(null)
@@ -3407,8 +3409,8 @@ function ReportsPage() {
         <div>
           <h2>Relatórios</h2>
           <p>
-            Detalhamento pedido a pedido por período. Use após fechar o caixa — os pedidos somem da
-            tela de Pedidos e ficam aqui.
+            Totais, gráficos rápidos e detalhamento por período. Depois de fechar o caixa, os
+            pedidos somem da tela de Pedidos e ficam aqui.
           </p>
         </div>
       </header>
@@ -3485,6 +3487,8 @@ function ReportsPage() {
       )}
 
       {summary && <OrdersSummaryCards summary={summary} className="cash-close-summary reports-summary-grid" />}
+
+      {report?.insights ? <ReportCharts insights={report.insights} /> : null}
 
       {summary?.byWaiter?.length ? <WaiterSalesSummary rows={summary.byWaiter} /> : null}
 

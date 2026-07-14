@@ -71,10 +71,22 @@ export async function closeCashRegister(apiBaseUrl, { notes = '', periodTo } = {
   return parseJsonResponse(response, 'Falha ao fechar caixa')
 }
 
-export async function fetchCashClosings(apiBaseUrl, limit = 15) {
-  const params = new URLSearchParams({ limit: String(limit) })
+export async function fetchCashClosings(apiBaseUrl, limit = 10, offset = 0) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  })
   const response = await adminFetch(apiBaseUrl, `/orders/cash-closings?${params}`)
-  return parseJsonResponse(response, 'Falha ao carregar histórico de fechamentos')
+  const body = await parseJsonResponse(response, 'Falha ao carregar histórico de fechamentos')
+  if (Array.isArray(body)) {
+    return { items: body, totalCount: body.length, limit, offset }
+  }
+  return {
+    items: Array.isArray(body.items) ? body.items : [],
+    totalCount: Number(body.totalCount) || 0,
+    limit: Number(body.limit) || limit,
+    offset: Number(body.offset) || offset,
+  }
 }
 
 function escapeHtml(text) {

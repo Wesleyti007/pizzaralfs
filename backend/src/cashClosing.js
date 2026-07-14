@@ -1,3 +1,5 @@
+import { buildSalesInsights } from './reportInsights.js'
+
 const ORDER_SELECT = `id, table_number AS "tableNumber", order_type AS "orderType",
   customer_name AS "customerName", items_subtotal AS "itemsSubtotal",
   delivery_fee AS "deliveryFee", payment_method AS "paymentMethod",
@@ -118,12 +120,14 @@ export async function buildOrdersReportForPeriod(query, periodFrom, periodTo) {
   const orders = result.rows
   const soldOrders = orders.filter((order) => order.status !== 'cancelled')
   const cancelledOrders = orders.filter((order) => order.status === 'cancelled')
+  const insights = await buildSalesInsights(query, orders)
   return {
     periodFrom: fromDate.toISOString(),
     periodTo: toDate.toISOString(),
     from: fromDate.toISOString().slice(0, 10),
     to: toDate.toISOString().slice(0, 10),
     summary: buildOrdersSummary(orders),
+    insights,
     orders,
     soldOrders,
     cancelledOrders,
@@ -135,6 +139,7 @@ export async function buildCashClosePreview(query, periodTo = new Date()) {
   const toDate = periodTo instanceof Date ? periodTo : new Date(periodTo)
   const orders = await fetchOrdersInRange(query, periodFrom, toDate)
   const summary = buildOrdersSummary(orders)
+  const insights = await buildSalesInsights(query, orders)
   const soldOrders = orders.filter((order) => order.status !== 'cancelled')
   const cancelledOrders = orders.filter((order) => order.status === 'cancelled')
 
@@ -142,6 +147,7 @@ export async function buildCashClosePreview(query, periodTo = new Date()) {
     periodFrom,
     periodTo: toDate,
     summary,
+    insights,
     orders,
     soldOrders,
     cancelledOrders,
@@ -176,15 +182,23 @@ export async function createCashClosing(query, { periodTo = new Date(), notes = 
   }
 }
 
-export async function listCashClosings(query, limit = 20) {
-  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20))
+export async function listCashClosings(query, limit = 10, offset = 0) {
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 10))
+  const safeOffset = Math.max(0, Number(offset) || 0)
   const result = await query(
     `SELECT id, period_from AS "periodFrom", period_to AS "periodTo",
-            summary, notes, created_at AS "createdAt"
+            summary, notes, created_at AS "createdAt",
+            COUNT(*) OVER()::int AS "totalCount"
      FROM cash_closings
      ORDER BY period_to DESC, id DESC
-     LIMIT $1`,
-    [safeLimit],
+     LIMIT $1 OFFSET $2`,
+    [safeLimit, safeOffset],
   )
-  return result.rows
+  const totalCount = result.rows[0]?.totalCount ?? 0
+  return {
+    items: result.rows.map(({ totalCount: _count, ...row }) => row),
+    totalCount,
+    limit: safeLimit,
+    offset: safeOffset,
+  }
 }

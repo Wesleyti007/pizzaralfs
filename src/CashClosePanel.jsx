@@ -15,9 +15,13 @@ import {
   formatOrderMoney,
 } from './orders.js'
 
+const HISTORY_PAGE_SIZE = 10
+
 export function CashClosePanel({ onCashClosed }) {
   const [preview, setPreview] = useState(null)
   const [history, setHistory] = useState([])
+  const [historyTotal, setHistoryTotal] = useState(0)
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [closing, setClosing] = useState(false)
   const [error, setError] = useState('')
@@ -55,10 +59,11 @@ export function CashClosePanel({ onCashClosed }) {
     try {
       const [previewData, historyData] = await Promise.all([
         fetchCashClosePreview(API_BASE_URL),
-        fetchCashClosings(API_BASE_URL, 10),
+        fetchCashClosings(API_BASE_URL, HISTORY_PAGE_SIZE, 0),
       ])
       setPreview(previewData)
-      setHistory(Array.isArray(historyData) ? historyData : [])
+      setHistory(historyData.items)
+      setHistoryTotal(historyData.totalCount)
     } catch (loadError) {
       setPreview(null)
       setError(
@@ -74,6 +79,25 @@ export function CashClosePanel({ onCashClosed }) {
   useEffect(() => {
     loadPreview()
   }, [loadPreview])
+
+  const loadMoreHistory = async () => {
+    if (historyLoadingMore || history.length >= historyTotal) return
+    setHistoryLoadingMore(true)
+    setError('')
+    try {
+      const page = await fetchCashClosings(API_BASE_URL, HISTORY_PAGE_SIZE, history.length)
+      setHistory((current) => [...current, ...page.items])
+      setHistoryTotal(page.totalCount)
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Não foi possível carregar mais fechamentos.',
+      )
+    } finally {
+      setHistoryLoadingMore(false)
+    }
+  }
 
   const handleCloseCash = async () => {
     if (closing) return
@@ -213,7 +237,9 @@ export function CashClosePanel({ onCashClosed }) {
             className="cash-close-history-toggle"
             onClick={() => setShowHistory((current) => !current)}
           >
-            {showHistory ? 'Ocultar histórico' : 'Ver fechamentos anteriores'}
+            {showHistory
+              ? 'Ocultar histórico'
+              : `Ver fechamentos anteriores${historyTotal ? ` (${Math.min(HISTORY_PAGE_SIZE, historyTotal)} de ${historyTotal})` : ''}`}
           </button>
 
           {showHistory && (
@@ -221,39 +247,55 @@ export function CashClosePanel({ onCashClosed }) {
               {history.length === 0 ? (
                 <p className="report-table-empty">Nenhum fechamento registrado ainda.</p>
               ) : (
-                <ul className="cash-close-history-list">
-                  {history.map((entry) => (
-                    <li key={entry.id}>
-                      <div className="cash-close-history-row">
-                        <span>
-                          <strong>#{entry.id}</strong> · {formatOrderDateTime(entry.periodFrom)} →{' '}
-                          {formatOrderDateTime(entry.periodTo)} ·{' '}
-                          {formatOrderMoney(entry.summary?.soldTotal)} ({entry.summary?.soldCount ?? 0}{' '}
-                          pedidos)
-                          {sanitizeCashCloseNotes(entry.notes)
-                            ? ` · ${sanitizeCashCloseNotes(entry.notes)}`
-                            : ''}
-                        </span>
-                        <span className="cash-close-history-buttons">
-                          <button
-                            type="button"
-                            className="admin-btn admin-btn-ghost cash-close-history-print"
-                            onClick={() => void printClosing(entry, `thermal-${entry.id}`)}
-                            disabled={printingId === `thermal-${entry.id}`}
-                          >
-                            {printingId === `thermal-${entry.id}` ? '...' : 'Comprovante'}
-                          </button>
-                          <Link
-                            className="admin-btn admin-btn-ghost cash-close-history-print"
-                            to={buildReportsPathForPeriod(entry.periodFrom, entry.periodTo)}
-                          >
-                            Relatórios
-                          </Link>
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <p className="cash-close-history-caption">
+                    Últimos {history.length}
+                    {historyTotal > history.length ? ` de ${historyTotal}` : ''} fechamentos
+                  </p>
+                  <ul className="cash-close-history-list">
+                    {history.map((entry) => (
+                      <li key={entry.id}>
+                        <div className="cash-close-history-row">
+                          <span>
+                            <strong>#{entry.id}</strong> · {formatOrderDateTime(entry.periodFrom)} →{' '}
+                            {formatOrderDateTime(entry.periodTo)} ·{' '}
+                            {formatOrderMoney(entry.summary?.soldTotal)} (
+                            {entry.summary?.soldCount ?? 0} pedidos)
+                            {sanitizeCashCloseNotes(entry.notes)
+                              ? ` · ${sanitizeCashCloseNotes(entry.notes)}`
+                              : ''}
+                          </span>
+                          <span className="cash-close-history-buttons">
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-ghost cash-close-history-print"
+                              onClick={() => void printClosing(entry, `thermal-${entry.id}`)}
+                              disabled={printingId === `thermal-${entry.id}`}
+                            >
+                              {printingId === `thermal-${entry.id}` ? '...' : 'Comprovante'}
+                            </button>
+                            <Link
+                              className="admin-btn admin-btn-ghost cash-close-history-print"
+                              to={buildReportsPathForPeriod(entry.periodFrom, entry.periodTo)}
+                            >
+                              Relatórios
+                            </Link>
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {history.length < historyTotal ? (
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-outline cash-close-history-more"
+                      onClick={() => void loadMoreHistory()}
+                      disabled={historyLoadingMore}
+                    >
+                      {historyLoadingMore ? 'Carregando...' : 'Carregar mais 10'}
+                    </button>
+                  ) : null}
+                </>
               )}
             </div>
           )}
