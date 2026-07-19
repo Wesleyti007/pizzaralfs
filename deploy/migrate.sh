@@ -31,6 +31,9 @@ MIGRATIONS=(
   migrate_catalog_sizes_rafs.sql
   migrate_menu_item_extras.sql
   migrate_menu_item_image_rev.sql
+  migrate_burger_sauces.sql
+  migrate_burger_menu_from_print.sql
+  migrate_burger_extras_from_bacon.sql
 )
 
 psql_exec() {

@@ -45,6 +45,8 @@ services:
       # Permite publicar com rsync + build no Mac (sem rebuild Docker quando Hub falha)
       - ../dist:/app/dist:ro
       - ../backend/src:/app/backend/src:ro
+      - ../backend/scripts:/app/backend/scripts:ro
+      - ../backend/assets:/app/backend/assets:ro
     depends_on:
       db:
         condition: service_healthy

@@ -8,6 +8,7 @@ import {
   calzoneSizeLabel,
 } from './menuSizes.js'
 import {
+  effectiveExtrasForItem,
   formatExtrasSummary,
   resolveSelectedExtras,
   sumExtrasPrices,
@@ -110,7 +111,8 @@ function computeLineUnitPrice(menuById, line, forDelivery, catalogSettings) {
 
   const baseUnit = Math.max(...prices.filter((value) => typeof value === 'number'))
   const menuItem = menuById.get(primaryId)
-  const selectedExtras = resolveSelectedExtras(menuItem?.extras, line.extraIds || line.extras)
+  const availableExtras = effectiveExtrasForItem(menuItem, catalogSettings?.burgerSauces)
+  const selectedExtras = resolveSelectedExtras(availableExtras, line.extraIds || line.extras)
   const extrasTotal = sumExtrasPrices(selectedExtras)
 
   return {
@@ -175,21 +177,41 @@ export async function priceOrderLinesFromDb(
     subtotal += unitPrice * qty
 
     const extrasSummary = formatExtrasSummary(priced.selectedExtras || [])
-    const baseName = String(line.name || menuItem.name).trim() || menuItem.name
-    const nameWithExtras =
-      extrasSummary && !baseName.includes(extrasSummary)
-        ? `${baseName} (${extrasSummary})`
-        : baseName
+    const stripExtras = (text) => {
+      if (!extrasSummary) return String(text || '').trim()
+      return String(text || '')
+        .replace(` (${extrasSummary})`, '')
+        .replace(`(${extrasSummary})`, '')
+        .replace(` · ${extrasSummary}`, '')
+        .replace(`${extrasSummary} · `, '')
+        .replace(extrasSummary, '')
+        .replace(/\s·\s*$/, '')
+        .replace(/^\s·\s*/, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+    }
 
-    const sizeLabelBase = String(line.sizeLabel || '').trim()
-    const sizeLabel =
-      extrasSummary && !sizeLabelBase.includes(extrasSummary)
-        ? [sizeLabelBase, extrasSummary].filter(Boolean).join(' · ')
-        : sizeLabelBase
+    // Keep extras only in sizeLabel so thermal print does not repeat them in name.
+    let name = stripExtras(line.name || menuItem.name) || menuItem.name
+    let sizeLabel = stripExtras(line.sizeLabel || '')
+
+    const optionMatch = name.match(/\s—\s(.+)$/)
+    if (optionMatch) {
+      const optionLabel = optionMatch[1].trim()
+      if (sizeLabel === optionLabel) {
+        sizeLabel = ''
+      } else if (sizeLabel.startsWith(`${optionLabel} · `)) {
+        sizeLabel = sizeLabel.slice(optionLabel.length + 3).trim()
+      }
+    }
+
+    if (extrasSummary) {
+      sizeLabel = [sizeLabel, extrasSummary].filter(Boolean).join(' · ')
+    }
 
     pricedLines.push({
       id: primaryId,
-      name: nameWithExtras,
+      name,
       category: String(line.category || menuItem.category).trim() || menuItem.category,
       subcategory: String(line.subcategory || menuItem.subcategory || '').trim(),
       qty,

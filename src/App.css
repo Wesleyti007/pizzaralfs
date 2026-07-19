@@ -2976,6 +2976,45 @@ body.home-splash-active .brand-header {
   font-weight: 600;
 }
 
+.admin-orders-open-ok {
+  width: 100%;
+  margin: 0;
+  font-size: 0.88rem;
+  color: #1f6b3a;
+  font-weight: 600;
+}
+
+.admin-burger-sauces-settings {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(197, 160, 89, 0.35);
+  background: rgba(255, 252, 245, 0.9);
+  display: grid;
+  gap: 10px;
+}
+
+.admin-burger-sauce-row.is-inactive {
+  opacity: 0.55;
+}
+
+.admin-burger-sauce-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--brand-dark);
+  cursor: pointer;
+}
+
+.admin-extras-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--brand-text-muted);
+}
+
 .admin-pizza-sizes-settings {
   margin: 12px 0;
   padding: 12px 14px;
@@ -3036,6 +3075,10 @@ body.home-splash-active .brand-header {
   grid-template-columns: minmax(110px, 0.8fr) minmax(140px, 1.4fr) minmax(100px, 0.7fr) auto;
   gap: 8px;
   align-items: center;
+}
+
+.admin-burger-sauce-row {
+  grid-template-columns: auto minmax(140px, 1.4fr) minmax(100px, 0.7fr) auto;
 }
 
 .admin-extras-actions {

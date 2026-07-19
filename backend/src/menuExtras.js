@@ -7,6 +7,15 @@ export const EXTRA_TYPES = [
 export const EXTRA_TYPE_IDS = EXTRA_TYPES.map((entry) => entry.id)
 export const MAX_ADD_EXTRA_QTY = 3
 
+/** Catálogo padrão de molhos dos burgers (fonte: Hoclaroma em produção). */
+export const DEFAULT_BURGER_SAUCES = [
+  { id: 'maionese-ralfs', label: "Maionese ralf's", type: 'sauce', price: 3, isActive: true },
+  { id: 'molho-ralfs', label: "Molho ralf's", type: 'sauce', price: 3, isActive: true },
+  { id: 'maionese-verde', label: 'Maionese verde', type: 'sauce', price: 3, isActive: true },
+  { id: 'maionese-bacon', label: 'Maionese bacon', type: 'sauce', price: 3, isActive: true },
+  { id: 'molho-cheddar', label: 'Molho cheddar', type: 'sauce', price: 3, isActive: true },
+]
+
 function slugifyExtraId(label, index = 0) {
   const base = String(label || '')
     .trim()
@@ -22,6 +31,11 @@ function parsePrice(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric < 0) return 0
   return Math.round(numeric * 100) / 100
+}
+
+export function isBurgerCategory(categoryId) {
+  const id = String(categoryId || '').trim().toLowerCase()
+  return id === 'hamburgueres' || id === 'burgers' || id === 'hamburguer'
 }
 
 export function normalizeExtraType(raw) {
@@ -69,8 +83,70 @@ export function normalizeMenuItemExtrasList(raw) {
   return extras
 }
 
-export function itemHasExtras(item) {
-  return Array.isArray(item?.extras) && item.extras.length > 0
+/** Só type=sauce; usado no catálogo compartilhado. */
+export function normalizeBurgerSauces(raw) {
+  let list = raw
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      list = []
+    }
+  }
+  if (!Array.isArray(list)) return []
+
+  const sauces = []
+  const seen = new Set()
+  for (const [index, entry] of list.entries()) {
+    const label = String(entry?.label ?? '').trim()
+    if (!label) continue
+    const type = normalizeExtraType(entry?.type)
+    if (type !== 'sauce') continue
+    let id = String(entry?.id ?? '').trim() || slugifyExtraId(label, index)
+    if (seen.has(id)) id = `${id}-${index + 1}`
+    seen.add(id)
+    sauces.push({
+      id,
+      label,
+      type: 'sauce',
+      price: parsePrice(entry?.price),
+      isActive: entry?.isActive !== false && entry?.active !== false,
+    })
+  }
+  return sauces
+}
+
+/** Extras do item sem molhos (molhos vêm do catálogo compartilhado). */
+export function itemExtrasWithoutSauces(raw) {
+  return normalizeMenuItemExtrasList(raw).filter((entry) => entry.type !== 'sauce')
+}
+
+/**
+ * Extras efetivos para pedido/UI:
+ * burgers → molhos compartilhados ativos + add/remove do item
+ * demais → extras do item
+ */
+export function effectiveExtrasForItem(item, burgerSauces = null) {
+  const itemExtras = normalizeMenuItemExtrasList(item?.extras)
+  if (!isBurgerCategory(item?.category)) {
+    return itemExtras
+  }
+  const sauces = normalizeBurgerSauces(
+    burgerSauces != null ? burgerSauces : DEFAULT_BURGER_SAUCES,
+  ).filter((entry) => entry.isActive !== false)
+  const nonSauce = itemExtras.filter((entry) => entry.type !== 'sauce')
+  const usedIds = new Set(sauces.map((entry) => entry.id))
+  const merged = [...sauces]
+  for (const entry of nonSauce) {
+    if (usedIds.has(entry.id)) continue
+    usedIds.add(entry.id)
+    merged.push(entry)
+  }
+  return merged
+}
+
+export function itemHasExtras(item, burgerSauces = null) {
+  return effectiveExtrasForItem(item, burgerSauces).length > 0
 }
 
 export function sumExtrasPrices(extras = []) {

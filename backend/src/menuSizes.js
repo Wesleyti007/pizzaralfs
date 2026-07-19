@@ -1,4 +1,4 @@
-import { normalizeMenuItemExtrasList } from './menuExtras.js'
+import { isBurgerCategory, itemExtrasWithoutSauces, normalizeMenuItemExtrasList } from './menuExtras.js'
 
 export const PIZZA_SIZE_TEMPLATES = [
   { id: 'broto', label: 'Broto', pieces: 4 },
@@ -351,7 +351,9 @@ export function buildMenuItemPayload(body, { enabledPizzaSizes = null, enabledCa
   }
 
   const options = normalizeMenuItemOptionsList(body.options)
-  const extras = normalizeMenuItemExtrasList(body.extras)
+  const extras = isBurgerCategory(category)
+    ? itemExtrasWithoutSauces(body.extras)
+    : normalizeMenuItemExtrasList(body.extras)
 
   const price = Number(body.price)
   if (!name || Number.isNaN(price) || price <= 0) {

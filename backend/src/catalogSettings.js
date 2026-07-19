@@ -1,5 +1,6 @@
 import { normalizeCepDigits } from './deliveryKm.js'
-import { DEFAULT_PIZZA_ENABLED_SIZES, DEFAULT_CALZONE_ENABLED_SIZES, normalizePizzaEnabledSizes, normalizeCalzoneEnabledSizes } from './menuSizes.js'
+import { normalizePizzaEnabledSizes, normalizeCalzoneEnabledSizes } from './menuSizes.js'
+import { DEFAULT_BURGER_SAUCES, normalizeBurgerSauces } from './menuExtras.js'
 
 function parseOrdersOpen(value) {
   if (value === false || value === 'false' || value === 0 || value === '0') return false
@@ -19,6 +20,7 @@ function rowToSettings(row = {}) {
     ordersOpen: parseOrdersOpen(row.ordersOpen),
     pizzaEnabledSizes: normalizePizzaEnabledSizes(row.pizzaEnabledSizes),
     calzoneEnabledSizes: normalizeCalzoneEnabledSizes(row.calzoneEnabledSizes),
+    burgerSauces: normalizeBurgerSauces(row.burgerSauces),
   }
 }
 
@@ -35,12 +37,13 @@ export async function loadCatalogSettings(query) {
               delivery_price_per_km AS "deliveryPricePerKm",
               orders_open AS "ordersOpen",
               pizza_enabled_sizes AS "pizzaEnabledSizes",
-              calzone_enabled_sizes AS "calzoneEnabledSizes"
+              calzone_enabled_sizes AS "calzoneEnabledSizes",
+              burger_sauces AS "burgerSauces"
        FROM catalog_settings WHERE id = 1`,
     )
     return rowToSettings(result.rows[0])
   } catch {
-    return rowToSettings()
+    return rowToSettings({ burgerSauces: DEFAULT_BURGER_SAUCES })
   }
 }
 
@@ -54,9 +57,10 @@ export async function saveCatalogSettings(query, raw) {
        id, categories, delivery_fee,
        establishment_cep, establishment_street, establishment_number,
        establishment_neighborhood, establishment_city, establishment_state,
-       delivery_price_per_km, orders_open, pizza_enabled_sizes, calzone_enabled_sizes, updated_at
+       delivery_price_per_km, orders_open, pizza_enabled_sizes, calzone_enabled_sizes,
+       burger_sauces, updated_at
      )
-     VALUES (1, '[]'::jsonb, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, NOW())
+     VALUES (1, '[]'::jsonb, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, NOW())
      ON CONFLICT (id)
      DO UPDATE SET
        delivery_fee = EXCLUDED.delivery_fee,
@@ -70,6 +74,7 @@ export async function saveCatalogSettings(query, raw) {
        orders_open = EXCLUDED.orders_open,
        pizza_enabled_sizes = EXCLUDED.pizza_enabled_sizes,
        calzone_enabled_sizes = EXCLUDED.calzone_enabled_sizes,
+       burger_sauces = EXCLUDED.burger_sauces,
        updated_at = NOW()`,
     [
       settings.deliveryFee,
@@ -83,6 +88,7 @@ export async function saveCatalogSettings(query, raw) {
       settings.ordersOpen,
       JSON.stringify(settings.pizzaEnabledSizes),
       JSON.stringify(settings.calzoneEnabledSizes),
+      JSON.stringify(settings.burgerSauces),
     ],
   )
 

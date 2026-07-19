@@ -96,6 +96,7 @@ export const DEFAULT_DELIVERY_SETTINGS = {
   ordersOpen: true,
   pizzaEnabledSizes: [...DEFAULT_PIZZA_ENABLED_SIZES],
   calzoneEnabledSizes: [...DEFAULT_CALZONE_ENABLED_SIZES],
+  burgerSauces: [...DEFAULT_BURGER_SAUCES],
 }
 import {
   DEFAULT_CATEGORIES,
@@ -138,7 +139,6 @@ import {
   isBurgerCategory,
   itemHasSizes,
   itemHasOptions,
-  itemHasExtras,
   EXTRA_TYPES,
   groupExtrasByType,
   resolveSelectedExtras,
@@ -163,9 +163,13 @@ import {
   CALZONE_SIZE_TEMPLATES,
   DEFAULT_PIZZA_ENABLED_SIZES,
   DEFAULT_CALZONE_ENABLED_SIZES,
+  DEFAULT_BURGER_SAUCES,
   normalizeCatalogSizeSettings,
   normalizePizzaEnabledSizes,
   normalizeCalzoneEnabledSizes,
+  normalizeBurgerSauces,
+  effectiveExtrasForItem,
+  itemExtrasWithoutSauces,
   sizeLabelsForCategory,
   sizeTemplatesForCategory,
   resolveActiveCategory,
@@ -436,7 +440,9 @@ function buildMenuItemApiPayload(item, isActive) {
       Number.isFinite(delivery) && delivery > 0 ? delivery : null
     payload.sizes = []
     payload.options = Array.isArray(item.options) ? item.options : []
-    payload.extras = normalizeMenuItemExtrasList(item.extras)
+    payload.extras = isBurgerCategory(item.category)
+      ? itemExtrasWithoutSauces(item.extras)
+      : normalizeMenuItemExtrasList(item.extras)
   }
 
   return payload
@@ -688,6 +694,7 @@ function App() {
             ordersOpen: settings.ordersOpen !== false,
             pizzaEnabledSizes: nextCatalogSizeSettings.pizzaEnabledSizes,
             calzoneEnabledSizes: nextCatalogSizeSettings.calzoneEnabledSizes,
+            burgerSauces: normalizeBurgerSauces(settings.burgerSauces),
           }
           deliverySettingsRef.current = nextDeliverySettings
           setDeliverySettings(nextDeliverySettings)
@@ -804,6 +811,7 @@ function App() {
       ...DEFAULT_DELIVERY_SETTINGS,
       ...saved,
       ...getCatalogSizeSettings(saved),
+      burgerSauces: normalizeBurgerSauces(saved.burgerSauces),
     }
     persistCachedCatalogSizeSettings(nextSettings)
     deliverySettingsRef.current = nextSettings
@@ -1644,9 +1652,7 @@ function OrderPanel({
                 </span>
               )}
               {item.sizeLabel && getCartFlavorIds(item).length <= 1 && (
-                <span className="basket-item-size">
-                  {itemHasOptions(item) ? `Sabor: ${item.sizeLabel}` : item.sizeLabel}
-                </span>
+                <span className="basket-item-size">{item.sizeLabel}</span>
               )}
               {Array.isArray(item.extras) && item.extras.length > 0 && !item.sizeLabel ? (
                 <span className="basket-item-size">{formatExtrasSummary(item.extras)}</span>
@@ -1954,6 +1960,7 @@ function MenuItemCard({
   categories = [],
   forDelivery = false,
   imagePriority = false,
+  burgerSauces = null,
 }) {
   const hasSizes = itemHasSizes(menuItem)
   const visibleSizes = useMemo(
@@ -1964,11 +1971,12 @@ function MenuItemCard({
   const isBurger = isBurgerCategory(menuItem.category)
   const showFlavorPicker = isCombinablePizzaItem(menuItem, categories)
   const hasOptions = itemHasOptions(menuItem)
-  const hasExtras = itemHasExtras(menuItem)
-  const extrasGroups = useMemo(
-    () => groupExtrasByType(menuItem.extras || []),
-    [menuItem.extras],
+  const effectiveExtras = useMemo(
+    () => effectiveExtrasForItem(menuItem, burgerSauces),
+    [menuItem, burgerSauces],
   )
+  const hasExtras = effectiveExtras.length > 0
+  const extrasGroups = useMemo(() => groupExtrasByType(effectiveExtras), [effectiveExtras])
   const [selectedSizeId, setSelectedSizeId] = useState(
     () => visibleSizes[0]?.id || menuItem.sizes?.[0]?.id || 'grande',
   )
@@ -1997,8 +2005,8 @@ function MenuItemCard({
   const pieceCount = getPiecesForSize(selectedSizeId, visibleSizes)
   const maxFlavors = getMaxFlavorsForSize(selectedSizeId, menuItem.category)
   const selectedExtras = useMemo(
-    () => resolveSelectedExtras(menuItem.extras, selectedExtraQty),
-    [menuItem.extras, selectedExtraQty],
+    () => resolveSelectedExtras(effectiveExtras, selectedExtraQty),
+    [effectiveExtras, selectedExtraQty],
   )
   const extrasTotal = sumExtrasPrices(selectedExtras)
   const selectedOption =
@@ -2139,14 +2147,13 @@ function MenuItemCard({
         ...menuItem,
         price: optionPrice,
         sizeId: chosenOption.id,
-        sizeLabel: [chosenOption.label, extrasSummary].filter(Boolean).join(' · '),
+        // Option stays in name; sizeLabel is extras only (avoids print duplication).
+        sizeLabel: extrasSummary,
         flavorIds: [],
         secondFlavorId: '',
         extraIds,
         extras: selectedExtras,
-        name: extrasSummary
-          ? `${menuItem.name} — ${chosenOption.label} (${extrasSummary})`
-          : `${menuItem.name} — ${chosenOption.label}`,
+        name: `${menuItem.name} — ${chosenOption.label}`,
       })
       return
     }
@@ -2159,13 +2166,12 @@ function MenuItemCard({
     const sizeLabel = [sizeLabelCore, extrasSummary].filter(Boolean).join(' · ')
     const flavorIds = normalizeFlavorIdList(selectedFlavorIds)
     const flavorItems = flavorIds.map((id) => pizzaById.get(id)).filter(Boolean)
-    const baseName =
+    const name =
       flavorItems.length > 1
         ? buildMultiFlavorCartName(flavorItems, sizeLabelCore)
         : sizeLabelCore
           ? `${menuItem.name} — ${selectedSize.label}`
           : menuItem.name
-    const name = extrasSummary ? `${baseName} (${extrasSummary})` : baseName
 
     onAddToCart({
       ...menuItem,
@@ -3094,6 +3100,7 @@ function HomePage({
               categories={categories}
               forDelivery={isDelivery}
               imagePriority={index < 4}
+              burgerSauces={deliverySettings.burgerSauces}
             />
           ))}
           {filteredMenu.length === 0 && !menuSearchActive && (
@@ -4342,12 +4349,16 @@ function emptyExtraDraft(type = 'sauce') {
     label: '',
     type,
     price: '',
+    isActive: true,
   }
 }
 
 function buildItemFormFromMenuItem(item, catalogSizeSettings = null) {
   const settings = getCatalogSizeSettings(catalogSizeSettings || DEFAULT_DELIVERY_SETTINGS)
   const hasPizzaSizes = itemHasSizes(item)
+  const extrasSource = isBurgerCategory(item.category)
+    ? itemExtrasWithoutSauces(item.extras)
+    : normalizeMenuItemExtrasList(item.extras)
   return {
     category: item.category,
     subcategory: item.subcategory || '',
@@ -4361,7 +4372,7 @@ function buildItemFormFromMenuItem(item, catalogSizeSettings = null) {
       catalogSizeSettings: settings,
     }),
     optionsText: formatOptionsForInput(item.options),
-    extras: normalizeMenuItemExtrasList(item.extras).map((extra) => ({
+    extras: extrasSource.map((extra) => ({
       key: extra.id,
       id: extra.id,
       label: extra.label,
@@ -4373,7 +4384,7 @@ function buildItemFormFromMenuItem(item, catalogSizeSettings = null) {
   }
 }
 
-function AdminExtrasEditor({ extras = [], onChange }) {
+function AdminExtrasEditor({ extras = [], onChange, hideSauces = false }) {
   const updateRow = (key, patch) => {
     onChange(
       extras.map((row) => (row.key === key || row.id === key ? { ...row, ...patch } : row)),
@@ -4388,9 +4399,20 @@ function AdminExtrasEditor({ extras = [], onChange }) {
     onChange([...extras, emptyExtraDraft(type)])
   }
 
+  const typeOptions = hideSauces
+    ? EXTRA_TYPES.filter((type) => type.id !== 'sauce')
+    : EXTRA_TYPES
+
   return (
     <div className="admin-extras-editor field-full">
-      <span className="field-label">Adicionais</span>
+      <span className="field-label">
+        {hideSauces ? 'Adicionais do item (sem molhos)' : 'Adicionais'}
+      </span>
+      {hideSauces ? (
+        <p className="admin-extras-hint">
+          Molhos dos burgers ficam no painel geral “Molhos dos burgers”.
+        </p>
+      ) : null}
       {extras.length > 0 ? (
         <div className="admin-extras-list">
           {extras.map((row) => {
@@ -4398,11 +4420,11 @@ function AdminExtrasEditor({ extras = [], onChange }) {
             return (
               <div key={rowKey} className="admin-extras-row">
                 <select
-                  value={row.type || 'sauce'}
+                  value={row.type || (hideSauces ? 'add' : 'sauce')}
                   onChange={(event) => updateRow(rowKey, { type: event.target.value })}
                   aria-label="Tipo do adicional"
                 >
-                  {EXTRA_TYPES.map((type) => (
+                  {typeOptions.map((type) => (
                     <option key={type.id} value={type.id}>
                       {type.label}
                     </option>
@@ -4412,7 +4434,7 @@ function AdminExtrasEditor({ extras = [], onChange }) {
                   type="text"
                   value={row.label}
                   onChange={(event) => updateRow(rowKey, { label: event.target.value })}
-                  placeholder="Ex.: Molho verde"
+                  placeholder={hideSauces ? 'Ex.: Bacon extra' : 'Ex.: Molho verde'}
                   aria-label="Nome do adicional"
                 />
                 <div className="price-input-wrap">
@@ -4443,9 +4465,11 @@ function AdminExtrasEditor({ extras = [], onChange }) {
         </div>
       ) : null}
       <div className="admin-extras-actions">
-        <button type="button" className="admin-btn admin-btn-outline" onClick={() => addRow('sauce')}>
-          + Molho
-        </button>
+        {!hideSauces ? (
+          <button type="button" className="admin-btn admin-btn-outline" onClick={() => addRow('sauce')}>
+            + Molho
+          </button>
+        ) : null}
         <button type="button" className="admin-btn admin-btn-outline" onClick={() => addRow('add')}>
           + Ingrediente
         </button>
@@ -4639,7 +4663,11 @@ function AdminItemFormFields({
         </div>
       )}
       {showExtrasEditor ? (
-        <AdminExtrasEditor extras={form.extras || []} onChange={onExtrasChange} />
+        <AdminExtrasEditor
+          extras={form.extras || []}
+          onChange={onExtrasChange}
+          hideSauces={isBurgerCategory(form.category)}
+        />
       ) : null}
       <label className="admin-active-toggle field-full">
         <input type="checkbox" name="isActive" checked={form.isActive !== false} onChange={onChange} />
@@ -5497,6 +5525,160 @@ function AdminCatalogSizesPanel({ deliverySettings, saveDeliverySettings }) {
   )
 }
 
+function AdminBurgerSaucesPanel({ deliverySettings, saveDeliverySettings }) {
+  const [draft, setDraft] = useState(() =>
+    normalizeBurgerSauces(deliverySettings.burgerSauces).map((extra) => ({
+      key: extra.id,
+      id: extra.id,
+      label: extra.label,
+      type: 'sauce',
+      price: formatPriceForInput(extra.price),
+      isActive: extra.isActive !== false,
+    })),
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [savedOk, setSavedOk] = useState(false)
+
+  useEffect(() => {
+    setDraft(
+      normalizeBurgerSauces(deliverySettings.burgerSauces).map((extra) => ({
+        key: extra.id,
+        id: extra.id,
+        label: extra.label,
+        type: 'sauce',
+        price: formatPriceForInput(extra.price),
+        isActive: extra.isActive !== false,
+      })),
+    )
+  }, [deliverySettings.burgerSauces])
+
+  const updateRow = (key, patch) => {
+    setDraft((current) =>
+      current.map((row) => (row.key === key || row.id === key ? { ...row, ...patch } : row)),
+    )
+    setSavedOk(false)
+  }
+
+  const removeRow = (key) => {
+    setDraft((current) => current.filter((row) => row.key !== key && row.id !== key))
+    setSavedOk(false)
+  }
+
+  const addRow = () => {
+    setDraft((current) => [...current, emptyExtraDraft('sauce')])
+    setSavedOk(false)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError('')
+    setSavedOk(false)
+    try {
+      const burgerSauces = normalizeBurgerSauces(
+        draft.map((row) => ({
+          id: row.id,
+          label: row.label,
+          type: 'sauce',
+          price: parsePriceInput(row.price) || 0,
+          isActive: row.isActive !== false,
+        })),
+      )
+      await saveDeliverySettings({
+        ...deliverySettings,
+        burgerSauces,
+      })
+      setSavedOk(true)
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Não foi possível salvar os molhos.',
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="admin-burger-sauces-settings" aria-label="Molhos dos burgers">
+      <div className="admin-pizza-sizes-settings-copy">
+        <strong>Molhos dos burgers</strong>
+        <p>
+          Lista única para todos os burgers. Desative um molho para ocultar do cardápio sem
+          apagar.
+        </p>
+      </div>
+      <div className="admin-extras-list">
+        {draft.map((row) => {
+          const rowKey = row.key || row.id
+          const active = row.isActive !== false
+          return (
+            <div
+              key={rowKey}
+              className={`admin-extras-row admin-burger-sauce-row${active ? '' : ' is-inactive'}`}
+            >
+              <label className="admin-burger-sauce-active">
+                <input
+                  type="checkbox"
+                  checked={active}
+                  onChange={(event) => updateRow(rowKey, { isActive: event.target.checked })}
+                  aria-label={`Ativar ${row.label || 'molho'}`}
+                />
+                <span>{active ? 'Ativo' : 'Inativo'}</span>
+              </label>
+              <input
+                type="text"
+                value={row.label}
+                onChange={(event) => updateRow(rowKey, { label: event.target.value })}
+                placeholder="Ex.: Maionese verde"
+                aria-label="Nome do molho"
+              />
+              <div className="price-input-wrap">
+                <span className="price-prefix" aria-hidden="true">
+                  R$
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={row.price}
+                  onChange={(event) =>
+                    updateRow(rowKey, { price: applyPriceMask(event.target.value) })
+                  }
+                  placeholder="0,00"
+                  aria-label="Preço do molho"
+                />
+              </div>
+              <button
+                type="button"
+                className="admin-btn admin-btn-outline"
+                onClick={() => removeRow(rowKey)}
+              >
+                Remover
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="admin-extras-actions">
+        <button type="button" className="admin-btn admin-btn-outline" onClick={addRow}>
+          + Molho
+        </button>
+        <button
+          type="button"
+          className="admin-btn admin-btn-primary"
+          onClick={() => void handleSave()}
+          disabled={saving}
+        >
+          {saving ? 'Salvando...' : 'Salvar molhos'}
+        </button>
+      </div>
+      {error ? <p className="admin-orders-open-error">{error}</p> : null}
+      {savedOk ? <p className="admin-orders-open-ok">Molhos salvos.</p> : null}
+    </section>
+  )
+}
+
 function AdminDeliveryConfigBanner({ deliverySettings, onOpenSettings }) {
   const fee = Math.max(0, Number(deliverySettings.deliveryFee) || 0)
   const configured = fee > 0
@@ -6267,6 +6449,11 @@ function AdminPage({
     }
     setFormState((current) => {
       if (name === 'category') {
+        let nextExtras =
+          isPizzaCategory(value) || isCalzoneCategory(value) ? [] : current.extras || []
+        if (isBurgerCategory(value)) {
+          nextExtras = nextExtras.filter((row) => (row.type || '') !== 'sauce')
+        }
         return {
           ...current,
           category: value,
@@ -6275,8 +6462,7 @@ function AdminPage({
             isPizzaCategory(value) || isCalzoneCategory(value) ? '' : current.price,
           sizePrices: emptySizePrices(value, catalogSizeSettings),
           sizeDeliveryPrices: emptySizePrices(value, catalogSizeSettings),
-          extras:
-            isPizzaCategory(value) || isCalzoneCategory(value) ? [] : current.extras || [],
+          extras: nextExtras,
         }
       }
       return { ...current, [name]: value }
@@ -6497,7 +6683,9 @@ function AdminPage({
         deliveryPrice,
         sizes: [],
         options,
-        extras: normalizeMenuItemExtrasList(
+        extras: (isBurgerCategory(form.category)
+          ? itemExtrasWithoutSauces
+          : normalizeMenuItemExtrasList)(
           (form.extras || []).map((row) => ({
             id: row.id,
             label: row.label,
@@ -6671,6 +6859,10 @@ function AdminPage({
           saveDeliverySettings={saveDeliverySettings}
         />
         <AdminCatalogSizesPanel
+          deliverySettings={deliverySettings}
+          saveDeliverySettings={saveDeliverySettings}
+        />
+        <AdminBurgerSaucesPanel
           deliverySettings={deliverySettings}
           saveDeliverySettings={saveDeliverySettings}
         />

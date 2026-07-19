@@ -682,6 +682,15 @@ export const EXTRA_TYPES = [
 
 const EXTRA_TYPE_IDS = EXTRA_TYPES.map((entry) => entry.id)
 
+/** Catálogo padrão de molhos dos burgers (fonte: Hoclaroma em produção). */
+export const DEFAULT_BURGER_SAUCES = [
+  { id: 'maionese-ralfs', label: "Maionese ralf's", type: 'sauce', price: 3, isActive: true },
+  { id: 'molho-ralfs', label: "Molho ralf's", type: 'sauce', price: 3, isActive: true },
+  { id: 'maionese-verde', label: 'Maionese verde', type: 'sauce', price: 3, isActive: true },
+  { id: 'maionese-bacon', label: 'Maionese bacon', type: 'sauce', price: 3, isActive: true },
+  { id: 'molho-cheddar', label: 'Molho cheddar', type: 'sauce', price: 3, isActive: true },
+]
+
 export function normalizeExtraType(raw) {
   const value = String(raw || '').trim().toLowerCase()
   if (EXTRA_TYPE_IDS.includes(value)) return value
@@ -728,8 +737,65 @@ export function normalizeMenuItemExtrasList(raw) {
   return extras
 }
 
-export function itemHasExtras(item) {
-  return !itemHasSizes(item) && Array.isArray(item?.extras) && item.extras.length > 0
+export function normalizeBurgerSauces(raw) {
+  let list = raw
+  if (typeof list === 'string') {
+    try {
+      list = JSON.parse(list)
+    } catch {
+      list = []
+    }
+  }
+  if (!Array.isArray(list)) return []
+
+  const sauces = []
+  const seen = new Set()
+  for (const [index, entry] of list.entries()) {
+    const label = String(entry?.label ?? '').trim()
+    if (!label) continue
+    const type = normalizeExtraType(entry?.type)
+    if (type !== 'sauce') continue
+    let id = String(entry?.id ?? '').trim() || slugify(`${label}-sauce`) || `sauce-${index + 1}`
+    if (seen.has(id)) id = `${id}-${index + 1}`
+    seen.add(id)
+    const price = Number(entry?.price)
+    const isActive = entry?.isActive !== false && entry?.active !== false
+    sauces.push({
+      id,
+      label,
+      type: 'sauce',
+      price: Number.isFinite(price) && price >= 0 ? Math.round(price * 100) / 100 : 0,
+      isActive,
+    })
+  }
+  return sauces
+}
+
+export function itemExtrasWithoutSauces(raw) {
+  return normalizeMenuItemExtrasList(raw).filter((entry) => entry.type !== 'sauce')
+}
+
+export function effectiveExtrasForItem(item, burgerSauces = null) {
+  const itemExtras = normalizeMenuItemExtrasList(item?.extras)
+  if (!isBurgerCategory(item?.category)) {
+    return itemExtras
+  }
+  const sauces = normalizeBurgerSauces(
+    burgerSauces != null ? burgerSauces : DEFAULT_BURGER_SAUCES,
+  ).filter((entry) => entry.isActive !== false)
+  const nonSauce = itemExtras.filter((entry) => entry.type !== 'sauce')
+  const usedIds = new Set(sauces.map((entry) => entry.id))
+  const merged = [...sauces]
+  for (const entry of nonSauce) {
+    if (usedIds.has(entry.id)) continue
+    usedIds.add(entry.id)
+    merged.push(entry)
+  }
+  return merged
+}
+
+export function itemHasExtras(item, burgerSauces = null) {
+  return !itemHasSizes(item) && effectiveExtrasForItem(item, burgerSauces).length > 0
 }
 
 export const MAX_ADD_EXTRA_QTY = 3
