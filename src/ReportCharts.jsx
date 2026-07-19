@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { formatOrderMoney } from './orders.js'
 
 function maxOf(rows, field) {
@@ -81,14 +82,78 @@ function ChannelSplit({ byChannel }) {
   )
 }
 
+function CategoryItemsBlock({ group }) {
+  const items = group.items?.length ? group.items : group.topItems || []
+  const maxQty = maxOf(items, 'qty')
+  const hasItems = items.length > 0
+  const soldQty = group.qty || 0
+
+  return (
+    <article className="report-chart-card report-chart-card--wide report-category-block">
+      <div className="report-category-block-head">
+        <h4>{group.label}</h4>
+        <p>
+          {soldQty > 0
+            ? `${soldQty} un. · ${formatOrderMoney(group.revenue)} · ${group.itemCount} ${
+                group.itemCount === 1 ? 'item' : 'itens'
+              }`
+            : hasItems
+              ? `0 un. · ${group.itemCount} ${group.itemCount === 1 ? 'item' : 'itens'} no cardápio`
+              : 'Sem itens no cardápio'}
+        </p>
+      </div>
+      {!hasItems ? (
+        <p className="report-chart-empty">Nenhum item ativo nesta categoria.</p>
+      ) : (
+        <div>
+          <h5>Ranking completo (mais → menos, incl. sem venda)</h5>
+          <HorizontalBars
+            rows={items.map((row) => ({
+              ...row,
+              key: row.id != null ? `item-${row.id}` : `name-${row.name}`,
+            }))}
+            valueKey="qty"
+            maxValue={maxQty}
+            tone="primary"
+            formatValue={(row) =>
+              (row.qty || 0) > 0
+                ? `${row.qty} · ${formatOrderMoney(row.revenue)}`
+                : '0 · sem vendas'
+            }
+          />
+        </div>
+      )}
+    </article>
+  )
+}
+
 export function ReportCharts({ insights }) {
+  const [categoryFilter, setCategoryFilter] = useState('all')
+
+  const byCategory = insights?.byCategory || []
+  const topItems = insights?.topItems || []
+  const bottomItems = insights?.bottomItems || []
+  const byDay = insights?.byDay || []
+
+  useEffect(() => {
+    if (categoryFilter === 'all') return
+    if (!byCategory.some((group) => group.category === categoryFilter)) {
+      setCategoryFilter('all')
+    }
+  }, [byCategory, categoryFilter])
+
+  const filteredCategories = useMemo(() => {
+    if (categoryFilter === 'all') return byCategory
+    return byCategory.filter((group) => group.category === categoryFilter)
+  }, [byCategory, categoryFilter])
+
   if (!insights) return null
 
-  const topItems = insights.topItems || []
-  const bottomItems = insights.bottomItems || []
-  const byDay = insights.byDay || []
   const hasAny =
-    topItems.length > 0 || bottomItems.length > 0 || byDay.length > 0 ||
+    topItems.length > 0 ||
+    bottomItems.length > 0 ||
+    byCategory.length > 0 ||
+    byDay.length > 0 ||
     (insights.byChannel?.table?.count || 0) + (insights.byChannel?.delivery?.count || 0) > 0
 
   if (!hasAny) {
@@ -99,8 +164,7 @@ export function ReportCharts({ insights }) {
     )
   }
 
-  const topMax = maxOf(topItems, 'qty')
-  const bottomMax = maxOf(bottomItems, 'qty')
+  const categoryMax = maxOf(byCategory, 'qty')
   const dayMax = maxOf(byDay, 'total')
   const dayRows = byDay.map((row) => ({
     ...row,
@@ -113,37 +177,34 @@ export function ReportCharts({ insights }) {
     <section className="report-charts" aria-label="Gráficos do período">
       <header className="report-charts-header">
         <h3>Visão rápida</h3>
-        <p>O que mais e menos saiu, canais e faturamento por dia no período filtrado.</p>
+        <p>
+          Ranking dinâmico por categoria do cardápio (todos os itens: mais, meio e menos
+          vendidos). Categorias novas entram sozinhas. Também mostra canais e faturamento por
+          dia.
+        </p>
       </header>
 
       <div className="report-charts-grid">
-        <article className="report-chart-card">
-          <h4>Mais vendidos</h4>
-          {topItems.length ? (
+        <article className="report-chart-card report-chart-card--wide">
+          <h4>Vendas por categoria</h4>
+          {byCategory.length ? (
             <HorizontalBars
-              rows={topItems}
+              rows={byCategory.map((group) => ({
+                ...group,
+                key: group.category,
+                name: group.label,
+              }))}
               valueKey="qty"
-              maxValue={topMax}
-              tone="primary"
-              formatValue={(row) => `${row.qty} · ${formatOrderMoney(row.revenue)}`}
+              maxValue={Math.max(categoryMax, 1)}
+              tone="gold"
+              formatValue={(row) =>
+                (row.qty || 0) > 0
+                  ? `${row.qty} un. · ${formatOrderMoney(row.revenue)}`
+                  : '0 un. · sem vendas'
+              }
             />
           ) : (
-            <p className="report-chart-empty">Nenhum item vendido.</p>
-          )}
-        </article>
-
-        <article className="report-chart-card">
-          <h4>Menos vendidos</h4>
-          {bottomItems.length ? (
-            <HorizontalBars
-              rows={bottomItems}
-              valueKey="qty"
-              maxValue={bottomMax || topMax}
-              tone="muted"
-              formatValue={(row) => `${row.qty} · ${formatOrderMoney(row.revenue)}`}
-            />
-          ) : (
-            <p className="report-chart-empty">Poucos itens distintos para comparar.</p>
+            <p className="report-chart-empty">Nenhuma categoria no cardápio.</p>
           )}
         </article>
 
@@ -152,7 +213,7 @@ export function ReportCharts({ insights }) {
           <ChannelSplit byChannel={insights.byChannel} />
         </article>
 
-        <article className="report-chart-card report-chart-card--wide">
+        <article className="report-chart-card">
           <h4>Faturamento por dia</h4>
           {dayRows.length ? (
             <HorizontalBars
@@ -167,6 +228,52 @@ export function ReportCharts({ insights }) {
           )}
         </article>
       </div>
+
+      {byCategory.length > 0 ? (
+        <div className="report-category-section">
+          <div className="report-category-section-head">
+            <h3>Ranking por categoria</h3>
+            <div className="report-category-filters" role="tablist" aria-label="Filtrar categoria">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={categoryFilter === 'all'}
+                className={
+                  categoryFilter === 'all'
+                    ? 'report-category-filter is-active'
+                    : 'report-category-filter'
+                }
+                onClick={() => setCategoryFilter('all')}
+              >
+                Todas
+              </button>
+              {byCategory.map((group) => (
+                <button
+                  key={group.category}
+                  type="button"
+                  role="tab"
+                  aria-selected={categoryFilter === group.category}
+                  className={
+                    categoryFilter === group.category
+                      ? 'report-category-filter is-active'
+                      : 'report-category-filter'
+                  }
+                  onClick={() => setCategoryFilter(group.category)}
+                >
+                  {group.label}
+                  {(group.qty || 0) === 0 ? ' · 0' : ''}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="report-category-blocks">
+            {filteredCategories.map((group) => (
+              <CategoryItemsBlock key={group.category} group={group} />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
